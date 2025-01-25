@@ -13,5 +13,5 @@ Clone the DSIPTS repository from GitHub:
     ```sh
     git clone https://github.com/DSIP-FBK/DSIPTS.git
     ```
-
+Follow setup steps: https://github.com/DSIP-FBK/DSIPTS.
 This will allow you to access and utilize the functionalities provided by DSIPTS.
