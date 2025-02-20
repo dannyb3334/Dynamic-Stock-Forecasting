@@ -78,15 +78,15 @@ def percent_change(data, periods=1):
 
 def hour_of_day(data):
     """Extract Hour of the Day as a sinusoidal feature."""
-    hours = data.index.hour
-    return np.sin(2 * np.pi * hours / 24)
+    hours = data.index.hour - 8
+    return np.sin(2 * np.pi * hours / 15)
 
 def day_of_week(data):
     """Extract Day of the Week as a sinusoidal feature."""
     days = data.index.dayofweek
-    return np.sin(2 * np.pi * days / 7)
+    return np.sin(2 * np.pi * days / 5)
 
 def month(data):
     """Extract Month as a sinusoidal feature."""
-    months = data.index.month
+    months = data.index.month - 1
     return np.sin(2 * np.pi * months / 12)

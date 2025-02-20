@@ -9,6 +9,7 @@ import indicators
 class DataProcessor:
     def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=1, lag=12, inference=False):
         self.tickers = tickers
+        self.inference = inference
         if not inference:
             self.train_split_amount = train_split_amount
             self.val_split_amount = val_split_amount

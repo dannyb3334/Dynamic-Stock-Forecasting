@@ -63,7 +63,7 @@ def train_model(model, train_loader, val_loader, optimizer, epochs):
     print("Training complete. Best Validation Loss: ", best_val_loss)
 
 def test_model(model, test_loader):
-    model.load_state_dict(torch.load("best_transformer_model.pth"))
+    model.load_state_dict(torch.load("best_transformer_model.pth")['model_state_dict'])
     model.eval()
     predictions, true_values = [], []
     

@@ -3,6 +3,7 @@ feature_dataframes
 .gitignore
 *.pth
 __pycache__
+goolden.py
 
 # Byte-compiled / optimized / DLL files
 *.csv
