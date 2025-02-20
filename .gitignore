@@ -1,3 +1,9 @@
+XNAS-20250204-NEXW4MSSYB
+feature_dataframes
+.gitignore
+*.pth
+__pycache__
+
 # Byte-compiled / optimized / DLL files
 *.csv
 *.jpg
