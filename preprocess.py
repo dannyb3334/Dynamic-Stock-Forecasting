@@ -7,7 +7,7 @@ from get_source_data import Databento
 import indicators
 
 class DataProcessor:
-    def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=1, lag=12, inference=False):
+    def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=2, lag=12, inference=False):
         self.tickers = tickers
         self.inference = inference
         if not inference:
@@ -27,43 +27,69 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
-        ticker_df = ticker_df.head(10000)
+        ticker_df = ticker_df.head(7000)
+        print(f"Length of data before adding features: {len(ticker_df)}")
 
         # Apply indicators to the dataframe
-        self.apply_indicators(ticker_df)
+        categorical_cols = self.apply_indicators(ticker_df)
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
 
         # Ensure the number of data points is a multiple of lag
         if len(ticker_df) % self.lag != 0:
             ticker_df = ticker_df[(len(ticker_df) % self.lag):]
+        
+        print(f"Length of data after applying features: {len(ticker_df)}")
+        cols = ticker_df.columns.tolist()
+        num_cols = len(cols)
+        print(cols)
 
         # Create sequences and labels
-        X, y = self.create_sequences_and_labels(ticker_df, ticker_index)
+        X, y = self.create_sequences_and_labels(ticker_df, ticker_index, num_cols, categorical_cols)
         return self.split_and_scale_data(X, y)
 
-    def create_sequences_and_labels(self, ticker_df, ticker_index):
+    def create_sequences_and_labels(self, ticker_df, ticker_index, num_cols, categorical_cols):
         X, y = [], []
         for j in range(self.lag, len(ticker_df)-self.lead+1):
-            X.append(ticker_df.iloc[j - self.lag:j].values.flatten())
-            y.append((ticker_df.iloc[j + self.lead - 1]['close'], ticker_index))
+            # Create a zero-padded array for the lead
+            lead_zero_pad =  np.zeros(num_cols * self.lead)
+            # Fill known categorical values for the lead
+            for col in categorical_cols:
+                for lead_step in range(1, self.lead + 1):
+                    index_to_fill = (num_cols * (lead_step - 1)) + ticker_df.columns.get_loc(col)
+                    lead_zero_pad[index_to_fill] = ticker_df.loc[ticker_df.index[j + lead_step - 1], col]
+
+            X.append(np.concatenate([
+                ticker_df.iloc[j - self.lag:j].values.flatten(), # Flatten the lagged data
+                lead_zero_pad # Add the zero-padded lead
+            ]))
+            y.append((ticker_df.iloc[j + self.lead - 1]['close'], ticker_index)) # Value to predict
         return np.array(X), np.array(y)
     
     def apply_indicators(self, ticker_df):
         print('Calculating indicators...')
-        print(f"Length of data before applying indicators: {len(ticker_df)}")
-        # Apply indicators from the indicators module
-        ticker_df['day'] = indicators.day_of_week(ticker_df)
-        ticker_df['hour'] = indicators.hour_of_day(ticker_df)
-        ticker_df['month'] = indicators.month(ticker_df)
+        # Categorical
+        # COS
+        ticker_df['minute_cos'] = indicators.minute_of_day_cos(ticker_df)
+        ticker_df['hour_cos'] = indicators.hour_of_day_cos(ticker_df)
+        ticker_df['day_cos'] = indicators.day_of_week_cos(ticker_df)
+        ticker_df['month_cos'] = indicators.month_cos(ticker_df)
+        # SIN
+        ticker_df['minute_sin'] = indicators.minute_of_day_sin(ticker_df)
+        ticker_df['hour_sin'] = indicators.hour_of_day_sin(ticker_df)
+        ticker_df['day_sin'] = indicators.day_of_week_sin(ticker_df)
+        ticker_df['month_sin'] = indicators.month_sin(ticker_df)
+        cat_cols = ['minute_cos', 'hour_cos', 'day_cos', 'month_cos',
+                'minute_sin', 'hour_sin', 'day_sin', 'month_sin']
+        # Statistical
         ticker_df['ema'] = indicators.ema(ticker_df['close'])
         ticker_df['sma'] = indicators.sma(ticker_df['close'])
         ticker_df['roc'] = indicators.roc(ticker_df['close'])
         ticker_df['percent_change'] = indicators.percent_change(ticker_df['close'])
         ticker_df['difference'] = indicators.difference(ticker_df['close'])
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        ticker_df.dropna(inplace=True)
-        print(f"Length of data after applying indicators: {len(ticker_df)}")        
+        ticker_df.dropna(inplace=True)  
+        return cat_cols     
 
     def split_and_scale_data(self, X, y):
         if not self.inference:

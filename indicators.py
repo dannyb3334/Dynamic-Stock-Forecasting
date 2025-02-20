@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+# statistical
 def bollinger_bands(data, window=10, num_of_std=2):
     """Calculate Bollinger Bands"""
     rolling_mean = data.rolling(window=window).mean()
@@ -76,17 +77,43 @@ def percent_change(data, periods=1):
     """Calculate Percent Change."""
     return data.pct_change(periods) * 100
 
-def hour_of_day(data):
-    """Extract Hour of the Day as a sinusoidal feature."""
-    hours = data.index.hour - 8
-    return np.sin(2 * np.pi * hours / 15)
+# categorical
+def minute_of_day_cos(data):
+    """Extract Minute of the day as a feature."""
+    minutes = ((data.index.hour - 9) * 60) + data.index.minute - 30
+    return np.cos(2 * np.pi * minutes / 390)
 
-def day_of_week(data):
-    """Extract Day of the Week as a sinusoidal feature."""
+def hour_of_day_cos(data):
+    """Extract Hour of the Day as a feature."""
+    hours = data.index.hour - 9
+    return np.cos(2 * np.pi * hours / 7)
+
+def day_of_week_cos(data):
+    """Extract Day of the Week as a feature."""
     days = data.index.dayofweek
-    return np.sin(2 * np.pi * days / 5)
+    return np.cos(2 * np.pi * days / 4)
 
-def month(data):
-    """Extract Month as a sinusoidal feature."""
+def month_cos(data):
+    """Extract Month as a feature."""
     months = data.index.month - 1
-    return np.sin(2 * np.pi * months / 12)
+    return np.cos(2 * np.pi * months / 11)
+
+def minute_of_day_sin(data):
+    """Extract Minute of the day as a feature."""
+    minutes = ((data.index.hour - 9) * 60) + data.index.minute - 30
+    return np.sin(2 * np.pi * minutes / 390)
+
+def hour_of_day_sin(data):
+    """Extract Hour of the Day as a feature."""
+    hours = data.index.hour - 9
+    return np.sin(2 * np.pi * hours / 7)
+
+def day_of_week_sin(data):
+    """Extract Day of the Week as a feature."""
+    days = data.index.dayofweek
+    return np.sin(2 * np.pi * days / 4)
+
+def month_sin(data):
+    """Extract Month as a feature."""
+    months = data.index.month - 1
+    return np.sin(2 * np.pi * months / 11)

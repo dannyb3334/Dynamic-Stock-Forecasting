@@ -103,9 +103,9 @@ if __name__ == "__main__":
 
     # Instantiate model, optimizer, and train
     model = TransformerModel(input_dim, lag, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
-    epochs = 100
+    epochs = 50
     print("Training model...")
     train_model(model, train_loader, val_loader, optimizer, epochs)
 
