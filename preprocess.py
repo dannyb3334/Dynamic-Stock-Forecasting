@@ -7,8 +7,9 @@ from get_source_data import Databento
 import indicators
 
 class DataProcessor:
-    def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=2, lag=12, inference=False):
+    def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=2, lag=12, inference=False, col_to_predict='close'):
         self.tickers = tickers
+        self.col_to_predict = col_to_predict
         self.inference = inference
         if not inference:
             self.train_split_amount = train_split_amount
@@ -27,11 +28,12 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
-        ticker_df = ticker_df.head(7000)
+        #ticker_df = ticker_df.head(7000)
         print(f"Length of data before adding features: {len(ticker_df)}")
 
         # Apply indicators to the dataframe
         categorical_cols = self.apply_indicators(ticker_df)
+        assert self.col_to_predict in ticker_df.columns, f"{self.col_to_predict} is not a column in the dataframe"
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
 
@@ -63,7 +65,7 @@ class DataProcessor:
                 ticker_df.iloc[j - self.lag:j].values.flatten(), # Flatten the lagged data
                 lead_zero_pad # Add the zero-padded lead
             ]))
-            y.append((ticker_df.iloc[j + self.lead - 1]['close'], ticker_index)) # Value to predict
+            y.append((ticker_df.iloc[j + self.lead - 1][self.col_to_predict], ticker_index)) # Value to predict
         return np.array(X), np.array(y)
     
     def apply_indicators(self, ticker_df):

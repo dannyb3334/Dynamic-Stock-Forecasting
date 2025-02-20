@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     print("Processing data...")
     tickers = ['SPY']
-    processor = DataProcessor(tickers, lag=lag, lead=lead, train_split_amount=0.7, val_split_amount=0.15)
+    processor = DataProcessor(tickers, lag=lag, lead=lead, train_split_amount=0.7, val_split_amount=0.15, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
 
     train_loader, train_scalerY = load_feature_dataframes(ModelMode.TRAIN, batch_size=128, shuffle=True)
@@ -104,6 +104,7 @@ if __name__ == "__main__":
     # Instantiate model, optimizer, and train
     model = TransformerModel(input_dim, lag, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
+
 
     epochs = 50
     print("Training model...")
