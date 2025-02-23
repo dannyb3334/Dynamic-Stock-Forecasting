@@ -5,6 +5,8 @@ from preprocess import DataProcessor
 from input_pipe import ModelMode, load_feature_dataframes
 from model import TransformerModel
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+
 
 import torch.nn as nn
 
@@ -30,16 +32,6 @@ def predict(model, data_loader, scalerY):
     return np.array(true_values), np.array(predictions)
 
 if __name__ == "__main__":
-    lag = 60
-    lead = 10
-
-    print("Processing data...")
-    tickers = ['SPY']
-    processor = DataProcessor(tickers, lag=lag, lead=lead,inference=True)
-    columns = processor.process_all_tickers()
-
-    test_loader, test_scalerY = load_feature_dataframes(ModelMode.INFERENCE, batch_size=128, shuffle=False)
-    
     # Load model parameters
     checkpoint = torch.load("best_transformer_model.pth")
     lag = checkpoint['lag']
@@ -51,6 +43,13 @@ if __name__ == "__main__":
     ff_dim = checkpoint['ff_dim']
     num_layers = checkpoint['num_layers']
     dropout = checkpoint['dropout']
+
+    print("Processing data...")
+    tickers = ['SPY']
+    processor = DataProcessor(tickers, lag=lag, lead=lead,inference=True)
+    columns = processor.process_all_tickers()
+
+    test_loader, test_scalerY = load_feature_dataframes(ModelMode.INFERENCE, batch_size=128, shuffle=False)
 
     # Instantiate model
     model = TransformerModel(input_dim, lag, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
@@ -71,7 +70,6 @@ if __name__ == "__main__":
     print(f"Prediction R2 Score: {r2:.4f}")
 
     # Plot results
-    import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 6))
     plt.plot(test_true, color='blue', label='True Values')
     plt.plot(test_pred, color='orange', label='Predictions')

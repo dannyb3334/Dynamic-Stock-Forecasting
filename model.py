@@ -42,7 +42,8 @@ class TransformerModel(nn.Module):
     def __init__(self, input_dim, seq_len, features, embed_dim, num_heads, ff_dim, num_layers, dropout=0.0):
         super(TransformerModel, self).__init__()
         
-        assert input_dim == seq_len * features, f"Expected input_dim={seq_len * features} for {seq_len} time steps of {features} features"        
+        assert input_dim == seq_len * features, f"Expected input_dim={seq_len * features} \
+                                                for {seq_len} time steps of {features} features. Given{input_dim}"        
         self.input_projection = nn.Linear(features, embed_dim)
         self.encoder_layers = nn.ModuleList([
             TransformerEncoder(embed_dim, num_heads, ff_dim, dropout) for _ in range(num_layers)

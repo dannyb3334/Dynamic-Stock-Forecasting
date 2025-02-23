@@ -1,13 +1,21 @@
 import os
 import pickle
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from get_source_data import Databento
 import indicators
 
 class DataProcessor:
+    """DataProcessor class to handle the preprocessing of stock data for model training and inference.
+    
+    This class fetches stock data, applies various indicators, adjusts for stock splits, creates sequences and labels,
+    splits the data into training, validation, and test sets, scales the data, and saves the processed data.
+    """
+
     def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=2, lag=12, inference=False, col_to_predict='close'):
+        """Initialize the DataProcessor"""
         self.tickers = tickers
         self.col_to_predict = col_to_predict
         self.inference = inference
@@ -20,6 +28,7 @@ class DataProcessor:
         assert lag > 0, 'Lag must be a positive integer'
 
     def process_ticker(self, ticker, ticker_index):
+        """Process a single ticker"""
         # Fetch data for the given ticker
         ticker_df = Databento.fetch_by_ticker(ticker)
         if ticker_df is None:
@@ -28,8 +37,8 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
-        #ticker_df = ticker_df.head(7000)
-        print(f"Length of data before adding features: {len(ticker_df)}")
+        #ticker_df = ticker_df.head(len(ticker_df) // 2)
+        print(f"Length of data before applying features: {len(ticker_df)}")
 
         # Apply indicators to the dataframe
         categorical_cols = self.apply_indicators(ticker_df)
@@ -44,13 +53,23 @@ class DataProcessor:
         print(f"Length of data after applying features: {len(ticker_df)}")
         cols = ticker_df.columns.tolist()
         num_cols = len(cols)
-        print(cols)
 
         # Create sequences and labels
         X, y = self.create_sequences_and_labels(ticker_df, ticker_index, num_cols, categorical_cols)
         return self.split_and_scale_data(X, y)
+    
+    def adjust_for_stock_splits(self, ticker_df):
+        """Adjust the stock data for stock splits"""
+        ticker_df['pct_change'] = ticker_df['close'][::-1].pct_change()[::-1]
+
+        indices_to_check = ticker_df.index[ticker_df['pct_change'] > 1].tolist()[::-1]
+        for idx in indices_to_check:
+            split_value = int(ticker_df.iloc[idx]['pct_change']) + 1
+            ticker_df.loc[0:idx, ['open', 'high', 'low', 'close']] /= split_value
+            ticker_df.loc[0:idx, ['volume']] *= split_value        
 
     def create_sequences_and_labels(self, ticker_df, ticker_index, num_cols, categorical_cols):
+        """Create sequences and labels for the model"""
         X, y = [], []
         for j in range(self.lag, len(ticker_df)-self.lead+1):
             # Create a zero-padded array for the lead
@@ -69,6 +88,8 @@ class DataProcessor:
         return np.array(X), np.array(y)
     
     def apply_indicators(self, ticker_df):
+        """Apply indicators to the dataframe"""
+
         print('Calculating indicators...')
         # Categorical
         # COS
@@ -83,6 +104,7 @@ class DataProcessor:
         ticker_df['month_sin'] = indicators.month_sin(ticker_df)
         cat_cols = ['minute_cos', 'hour_cos', 'day_cos', 'month_cos',
                 'minute_sin', 'hour_sin', 'day_sin', 'month_sin']
+        
         # Statistical
         ticker_df['ema'] = indicators.ema(ticker_df['close'])
         ticker_df['sma'] = indicators.sma(ticker_df['close'])
@@ -94,6 +116,7 @@ class DataProcessor:
         return cat_cols     
 
     def split_and_scale_data(self, X, y):
+        """Split and scale the data"""
         if not self.inference:
             length = len(y)
             train_split = int(length * self.train_split_amount)
@@ -133,6 +156,7 @@ class DataProcessor:
             }
 
     def save_data_splits(self, ticker, data_splits):
+        """Save the data splits"""
         # Create directories if they don't exist
         os.makedirs('feature_dataframes', exist_ok=True)
         # Save the dataframe
@@ -140,6 +164,7 @@ class DataProcessor:
             pickle.dump(data_splits, f)
 
     def process_all_tickers(self):
+        """Process all tickers"""
         for i, ticker in enumerate(self.tickers):
             data_splits = self.process_ticker(ticker, i)
             if data_splits:
