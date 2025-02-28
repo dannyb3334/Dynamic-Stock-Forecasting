@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 
 from get_source_data import Databento
 import indicators
+from typing import List
 
 class DataProcessor:
     """DataProcessor class to handle the preprocessing of stock data for model training and inference.
@@ -14,18 +15,23 @@ class DataProcessor:
     splits the data into training, validation, and test sets, scales the data, and saves the processed data.
     """
 
-    def __init__(self, tickers, train_split_amount=0.8, val_split_amount=0.1, lead=2, lag=12, inference=False, col_to_predict='close'):
+    def __init__(self, tickers:List[str], train_split_amount:float=0.8, val_split_amount:float=0.1, lead:int=2,
+                 lag:int=12, inference:bool=False, col_to_predict:str='close'):
         """Initialize the DataProcessor"""
+        # Check for valid input
+        assert lead > 0, 'Lead must be a positive integer'
+        assert lag > 0, 'Lag must be a positive integer'
+
         self.tickers = tickers
         self.col_to_predict = col_to_predict
         self.inference = inference
+        self.lead = lead
+        self.lag = lag
+
+        # Set the split amounts if not in inference mode
         if not inference:
             self.train_split_amount = train_split_amount
             self.val_split_amount = val_split_amount
-        self.lead = lead
-        self.lag = lag
-        assert lead > 0, 'Lead must be a positive integer'
-        assert lag > 0, 'Lag must be a positive integer'
 
     def process_ticker(self, ticker, ticker_index):
         """Process a single ticker"""
@@ -37,26 +43,27 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
-        #ticker_df = ticker_df.head(len(ticker_df) // 2)
+        #ticker_df = ticker_df.head(7000)
         print(f"Length of data before applying features: {len(ticker_df)}")
 
-        # Apply indicators to the dataframe
+        # Create labels
+        self.apply_indicators(ticker_df)
+        assert self.col_to_predict in ticker_df.columns, \
+                    f"{self.col_to_predict} is not a feature column in the dataframe"
         categorical_cols = self.apply_indicators(ticker_df)
-        assert self.col_to_predict in ticker_df.columns, f"{self.col_to_predict} is not a column in the dataframe"
-        ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        ticker_df.dropna(inplace=True)
 
         # Ensure the number of data points is a multiple of lag
         if len(ticker_df) % self.lag != 0:
             ticker_df = ticker_df[(len(ticker_df) % self.lag):]
         
         print(f"Length of data after applying features: {len(ticker_df)}")
-        cols = ticker_df.columns.tolist()
-        num_cols = len(cols)
+
+        num_cols = len(ticker_df.columns.tolist())
 
         # Create sequences and labels
         X, y = self.create_sequences_and_labels(ticker_df, ticker_index, num_cols, categorical_cols)
-        return self.split_and_scale_data(X, y)
+        data_splits = self.split_and_scale_data(X, y)
+        return data_splits
     
     def adjust_for_stock_splits(self, ticker_df):
         """Adjust the stock data for stock splits"""
@@ -80,44 +87,56 @@ class DataProcessor:
                     index_to_fill = (num_cols * (lead_step - 1)) + ticker_df.columns.get_loc(col)
                     lead_zero_pad[index_to_fill] = ticker_df.loc[ticker_df.index[j + lead_step - 1], col]
 
+            # Apply sinuoidal positional encoding
+            sin_vector = np.array([[np.sin(2 * np.pi * i / self.lag)]*num_cols for i in range(self.lag + self.lead)])
+
+            # Create the sequence
             X.append(np.concatenate([
                 ticker_df.iloc[j - self.lag:j].values.flatten(), # Flatten the lagged data
                 lead_zero_pad # Add the zero-padded lead
-            ]))
+                ]) + sin_vector.flatten()
+            )
             y.append((ticker_df.iloc[j + self.lead - 1][self.col_to_predict], ticker_index)) # Value to predict
         return np.array(X), np.array(y)
     
-    def apply_indicators(self, ticker_df):
-        """Apply indicators to the dataframe"""
-
-        print('Calculating indicators...')
-        # Categorical
-        # COS
+    def apply_categoricals(self, ticker_df):
+        """Apply categorical indicators to the dataframe"""
+        # COS and SIN
+        # Time positional encoding
         ticker_df['minute_cos'] = indicators.minute_of_day_cos(ticker_df)
-        ticker_df['hour_cos'] = indicators.hour_of_day_cos(ticker_df)
-        ticker_df['day_cos'] = indicators.day_of_week_cos(ticker_df)
-        ticker_df['month_cos'] = indicators.month_cos(ticker_df)
-        # SIN
         ticker_df['minute_sin'] = indicators.minute_of_day_sin(ticker_df)
+
+        ticker_df['hour_cos'] = indicators.hour_of_day_cos(ticker_df)
         ticker_df['hour_sin'] = indicators.hour_of_day_sin(ticker_df)
+
+        ticker_df['day_cos'] = indicators.day_of_week_cos(ticker_df)
         ticker_df['day_sin'] = indicators.day_of_week_sin(ticker_df)
+
+        ticker_df['month_cos'] = indicators.month_cos(ticker_df)
         ticker_df['month_sin'] = indicators.month_sin(ticker_df)
-        cat_cols = ['minute_cos', 'hour_cos', 'day_cos', 'month_cos',
-                'minute_sin', 'hour_sin', 'day_sin', 'month_sin']
-        
-        # Statistical
+
+        cat_cols = ['minute_cos', 'minute_sin', 'hour_cos', 'hour_sin', \
+                    'day_cos', 'day_sin', 'month_cos', 'month_sin']
+        return cat_cols
+    
+    def apply_indicators(self, ticker_df):
+        """Apply statistical indicators to the dataframe"""
         ticker_df['ema'] = indicators.ema(ticker_df['close'])
         ticker_df['sma'] = indicators.sma(ticker_df['close'])
         ticker_df['roc'] = indicators.roc(ticker_df['close'])
         ticker_df['percent_change'] = indicators.percent_change(ticker_df['close'])
         ticker_df['difference'] = indicators.difference(ticker_df['close'])
+
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        ticker_df.dropna(inplace=True)  
-        return cat_cols     
+        ticker_df.dropna(inplace=True)
+
+        indicator_cols = ['ema', 'sma', 'roc', 'percent_change', 'difference']
+        return indicator_cols
 
     def split_and_scale_data(self, X, y):
         """Split and scale the data"""
         if not self.inference:
+            # Split data
             length = len(y)
             train_split = int(length * self.train_split_amount)
             val_split = int(length * self.val_split_amount)
@@ -170,7 +189,7 @@ class DataProcessor:
             if data_splits:
                 self.save_data_splits(ticker, data_splits)
         
-        return len(data_splits['train']['X'][0])
+        return len(data_splits['test']['X'][0])
 
 
 if __name__ == "__main__":

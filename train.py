@@ -103,7 +103,9 @@ def evaluate_model(test_true, test_pred):
     mse = mean_squared_error(test_true, test_pred)
     rmse = math.sqrt(mse)
     r2 = r2_score(test_true, test_pred)
+    nll = -np.mean(np.log(np.maximum(1e-9, np.abs(test_pred - test_true))))
 
+    print(f"Validation NLL: {nll:.4f}")
     print(f"Validation MAE: {mae:.4f}")
     print(f"Validation MSE: {mse:.4f}")
     print(f"Validation RMSE: {rmse:.4f}")
@@ -111,10 +113,9 @@ def evaluate_model(test_true, test_pred):
     
     # Plot results
     plt.figure(figsize=(10, 6))
-    plt.plot(test_true, color='blue', label='True Values')
-    plt.plot(test_pred, color='orange', label='Predictions')
-    plt.xlabel("Time Steps")
-    plt.ylabel("Values")
+    plt.scatter(test_true, test_pred, color='orange', label='Predictions vs True Values')
+    plt.xlabel("True Values")
+    plt.ylabel("Predictions")
     plt.title("True Values vs. Predictions")
     plt.legend()
     plt.show()
@@ -132,23 +133,23 @@ def get_scheduler(optimizer, warmup_steps=500, total_steps=5000):
     return LambdaLR(optimizer, lr_lambda)
 
 if __name__ == "__main__":
-    lag = 60
+    lag = 30
     lead = 5
 
     print("Processing data...")
     tickers = ['SPY'] # Example
-    processor = DataProcessor(tickers, lag=lag, lead=lead, train_split_amount=0.7, val_split_amount=0.15, col_to_predict='close')
+    processor = DataProcessor(tickers, lag=lag, lead=lead, train_split_amount=0.7, val_split_amount=0.15, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
 
     train_loader, train_scalerY = load_feature_dataframes(ModelMode.TRAIN, batch_size=128, shuffle=True)
     val_loader, val_scalerY = load_feature_dataframes(ModelMode.EVAL, batch_size=128, shuffle=False)
     
     # Hyperparameters
-    embed_dim = 64  # 16 dims per head 
-    num_heads = 4
-    ff_dim = 256
+    embed_dim = 128  # 16 dims per head 
+    num_heads = 8
+    ff_dim = 512
     num_layers = 6
-    dropout = 0.2
+    dropout = 0.3
 
     input_dim = columns
     features = columns//(lag+lead)

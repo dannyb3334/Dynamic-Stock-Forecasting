@@ -33,7 +33,8 @@ def predict(model, data_loader, scalerY):
 
 if __name__ == "__main__":
     # Load model parameters
-    checkpoint = torch.load("best_transformer_model.pth")
+    model_dir  = 'best_transformer_model_1M.pth'
+    checkpoint = torch.load(model_dir)
     lag = checkpoint['lag']
     lead = checkpoint['lead']
     input_dim = checkpoint['input_dim']
@@ -45,15 +46,15 @@ if __name__ == "__main__":
     dropout = checkpoint['dropout']
 
     print("Processing data...")
-    tickers = ['SPY']
-    processor = DataProcessor(tickers, lag=lag, lead=lead,inference=True)
-    columns = processor.process_all_tickers()
+    #tickers = ['SPY']
+    #processor = DataProcessor(tickers, lag=lag, lead=lead,inference=True)
+    #columns = processor.process_all_tickers()
 
     test_loader, test_scalerY = load_feature_dataframes(ModelMode.INFERENCE, batch_size=128, shuffle=False)
 
     # Instantiate model
-    model = TransformerModel(input_dim, lag, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
-    model.load_state_dict(torch.load("best_transformer_model.pth")['model_state_dict'])
+    model = TransformerModel(input_dim, lag+lead, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
+    model.load_state_dict(torch.load(model_dir)['model_state_dict'])
 
     print("Making predictions...")
     test_true, test_pred = predict(model, test_loader, test_scalerY)

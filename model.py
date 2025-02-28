@@ -1,18 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torch.nn as nn
-import torch.nn.functional as F
-
-# Transformer Encoder block
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 class TransformerEncoder(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.0):
         super(TransformerEncoder, self).__init__()
