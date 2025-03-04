@@ -171,3 +171,9 @@ cython_debug/
 
 /resources/*
 *.pkl
+wandb
+*.json
+*.csv
+plots
+models
+*.txt

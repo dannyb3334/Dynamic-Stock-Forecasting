@@ -20,7 +20,7 @@ class StockDataset(Dataset):
     def __getitem__(self, idx):
         return self.sequences[idx], self.labels[idx]
 
-def load_feature_dataframes(mode, batch_size=32, shuffle=False):
+def load_feature_dataframes(tickers, mode, batch_size=32, shuffle=False):
     # Directory containing the feature dataframes
     feature_dataframes_dir = 'feature_dataframes'
 
@@ -31,22 +31,23 @@ def load_feature_dataframes(mode, batch_size=32, shuffle=False):
     dataframes = {'X': [], 'y': [], 'scalerY': {}}
 
     for file in feature_files:
-        file_path = os.path.join(feature_dataframes_dir, file)
-        if os.path.isfile(file_path):
-            with open(file_path, 'rb') as f:
-                data = pickle.load(f)
-                if mode == ModelMode.TRAIN:
-                    dataframes['X'].append(data['train']['X'])
-                    dataframes['y'].append(data['train']['y'])
-                    dataframes['scalerY'][data['train']['y'][-1][-1]] = data['train']['scalerY']
-                elif mode == ModelMode.EVAL:
-                    dataframes['X'].append(data['val']['X'])
-                    dataframes['y'].append(data['val']['y'])
-                    dataframes['scalerY'][data['val']['y'][-1][-1]] = data['val']['scalerY']
-                elif mode == ModelMode.INFERENCE:
-                    dataframes['X'].append(data['test']['X'])
-                    dataframes['y'].append(data['test']['y'])
-                    dataframes['scalerY'][data['test']['y'][-1][-1]] = data['test']['scalerY']
+        if any(ticker in file for ticker in tickers):
+            file_path = os.path.join(feature_dataframes_dir, file)
+            if os.path.isfile(file_path):
+                with open(file_path, 'rb') as f:
+                    data = pickle.load(f)
+                    if mode == ModelMode.TRAIN:
+                        dataframes['X'].append(data['train']['X'])
+                        dataframes['y'].append(data['train']['y'])
+                        dataframes['scalerY'][data['train']['y'][-1][-1]] = data['train']['scalerY']
+                    elif mode == ModelMode.EVAL:
+                        dataframes['X'].append(data['val']['X'])
+                        dataframes['y'].append(data['val']['y'])
+                        dataframes['scalerY'][data['val']['y'][-1][-1]] = data['val']['scalerY']
+                    elif mode == ModelMode.INFERENCE:
+                        dataframes['X'].append(data['test']['X'])
+                        dataframes['y'].append(data['test']['y'])
+                        dataframes['scalerY'][data['test']['y'][-1][-1]] = data['test']['scalerY']
 
     dataset = StockDataset(np.concatenate(dataframes['X']), np.concatenate(dataframes['y']))
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)

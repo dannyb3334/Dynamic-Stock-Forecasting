@@ -1,15 +1,16 @@
-import math
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from preprocess import DataProcessor
 from input_pipe import ModelMode, load_feature_dataframes
 from model import TransformerModel
+import wandb
+import time
+from predict import predict
+from evaluate import evaluate
 
 print("Num GPUs Available: ", torch.cuda.device_count())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -17,8 +18,10 @@ if device.type == "cpu":
     print("Using CPU")
     exit() # Only use GPU (preference)
 
-def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs):
+def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs, save_dict):
     best_val_loss = float('inf')
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    model_name = f"models/model_{timestamp}.pth"
     
     train_losses = []
     val_losses = []
@@ -54,18 +57,8 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
         # Save the model with the best validation loss
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'lag': lag,
-                'lead': lead,
-                'input_dim': input_dim,
-                'features': features,
-                'embed_dim': embed_dim,
-                'num_heads': num_heads,
-                'ff_dim': ff_dim,
-                'num_layers': num_layers,
-                'dropout': dropout
-            }, "best_transformer_model.pth")
+            save_dict['model_state_dict'] = model.state_dict()
+            torch.save(save_dict, model_name)
     
     print("Training complete. Best Validation Loss: ", best_val_loss)
 
@@ -77,48 +70,7 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss Over Epochs')
     plt.legend()
-    plt.show()
-
-def test_model(model, test_loader):
-    """Test the model"""
-    model.load_state_dict(torch.load("best_transformer_model.pth")['model_state_dict'])
-    model.eval()
-    predictions, true_values = [], []
-    
-    with torch.no_grad():
-        for inputs, targets in test_loader:
-            inputs = inputs.to(device)
-            outputs = model(inputs).cpu().detach().numpy()
-            temp = np.column_stack((outputs, np.zeros_like(outputs)))  # Add a second column of zeros fro transformation
-            unscaled_outputs = test_scalerY[0].inverse_transform(temp)[:, 0]
-            unscaled_targets = test_scalerY[0].inverse_transform(targets)[:, 0]
-            predictions.extend(unscaled_outputs)
-            true_values.extend(unscaled_targets)
-
-    return np.array(true_values), np.array(predictions)
-
-def evaluate_model(test_true, test_pred):
-    """Evaluate the model"""
-    mae = mean_absolute_error(test_true, test_pred)
-    mse = mean_squared_error(test_true, test_pred)
-    rmse = math.sqrt(mse)
-    r2 = r2_score(test_true, test_pred)
-    nll = -np.mean(np.log(np.maximum(1e-9, np.abs(test_pred - test_true))))
-
-    print(f"Validation NLL: {nll:.4f}")
-    print(f"Validation MAE: {mae:.4f}")
-    print(f"Validation MSE: {mse:.4f}")
-    print(f"Validation RMSE: {rmse:.4f}")
-    print(f"Validation R2 Score: {r2:.4f}")
-    
-    # Plot results
-    plt.figure(figsize=(10, 6))
-    plt.scatter(test_true, test_pred, color='orange', label='Predictions vs True Values')
-    plt.xlabel("True Values")
-    plt.ylabel("Predictions")
-    plt.title("True Values vs. Predictions")
-    plt.legend()
-    plt.show()
+    wandb.log({"Training and Validation Loss Over Epochs": plt})
 
 def get_scheduler(optimizer, warmup_steps=500, total_steps=5000):
     """ Warm-up and cosine decay scheduler """
@@ -133,16 +85,21 @@ def get_scheduler(optimizer, warmup_steps=500, total_steps=5000):
     return LambdaLR(optimizer, lr_lambda)
 
 if __name__ == "__main__":
-    lag = 30
+    # Initialize Weights and Biases
+    wandb.init(project="dynamic-stock-forecasting")
+
+    lag = 60
     lead = 5
 
     print("Processing data...")
     tickers = ['SPY'] # Example
-    processor = DataProcessor(tickers, lag=lag, lead=lead, train_split_amount=0.7, val_split_amount=0.15, col_to_predict='percent_change')
+    provider = 'Databento'
+    processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.80, val_split_amount=0.15, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
+    print("Data processing complete.")
 
-    train_loader, train_scalerY = load_feature_dataframes(ModelMode.TRAIN, batch_size=128, shuffle=True)
-    val_loader, val_scalerY = load_feature_dataframes(ModelMode.EVAL, batch_size=128, shuffle=False)
+    train_loader, train_scalerY = load_feature_dataframes(tickers, ModelMode.TRAIN, batch_size=128, shuffle=True)
+    val_loader, val_scalerY = load_feature_dataframes(tickers, ModelMode.EVAL, batch_size=128, shuffle=False)
     
     # Hyperparameters
     embed_dim = 128  # 16 dims per head 
@@ -168,13 +125,47 @@ if __name__ == "__main__":
     # Loss function
     criterion = nn.L1Loss()
 
-    epochs = 32
+    epochs = 2
+
+    # Log hyperparameters
+    wandb.config.update({
+        "lag": lag,
+        "lead": lead,
+        "embed_dim": embed_dim,
+        "num_heads": num_heads,
+        "ff_dim": ff_dim,
+        "num_layers": num_layers,
+        "dropout": dropout,
+        "learning_rate": 0.00005,
+        "weight_decay": 0.02,
+        "warmup_steps": warmup_steps,
+        "total_steps": total_steps,
+        "epochs": epochs
+    })
+
+    save_dict = {
+        'model_state_dict': None,
+        'lag': lag,
+        'lead': lead,
+        'input_dim': input_dim,
+        'features': features,
+        'embed_dim': embed_dim,
+        'num_heads': num_heads,
+        'ff_dim': ff_dim,
+        'num_layers': num_layers,
+        'dropout': dropout
+    }
 
     print("Training model...")
-    train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs)
+    train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs, save_dict)
 
-    test_loader, test_scalerY = load_feature_dataframes(ModelMode.INFERENCE, batch_size=128, shuffle=False)
-    test_true, test_pred = test_model(model, test_loader)
+    test_loader, test_scalerY = load_feature_dataframes(tickers, ModelMode.INFERENCE, batch_size=256, shuffle=False)
 
-    # Evaluate the model
-    evaluate_model(test_true, test_pred)
+    print("Testing Model...")
+    results_df = predict(model, test_loader, test_scalerY)
+
+    # Evaluate model
+    evaluate(results_df)
+
+    # Finish the wandb run
+    wandb.finish()

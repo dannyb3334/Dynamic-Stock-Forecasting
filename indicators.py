@@ -77,6 +77,8 @@ def percent_change(data, periods=1):
     """Calculate Percent Change."""
     return data.pct_change(periods) * 100
 
+
+
 # categorical
 def minute_of_day_cos(data):
     """Extract Minute of the day as a feature."""
