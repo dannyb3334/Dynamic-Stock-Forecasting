@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import yfinance as yf
+import datetime
 
 """ Data classes require returned columns in format index= 'time' and columns= ['open', 'high', 'low', 'close', 'volume'] """
 
@@ -42,7 +43,9 @@ class Databento:
 
 class YahooFinance:
     def fetch_by_ticker(ticker):
-        data = yf.download(ticker, interval='1m')
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=1)
+        data = yf.download(ticker, interval='1m', start=start_date)
         if not data.empty:
             data.reset_index(inplace=True)
             data['Date'] = pd.to_datetime(data['Datetime']).dt.tz_convert('US/Eastern')
@@ -51,21 +54,13 @@ class YahooFinance:
             data = data[['Open', 'High', 'Low', 'Close', 'Volume', 'Date']]
             data.columns = [col.lower() for col in data.columns]
             data = data[['date', 'close','volume', 'open', 'high', 'low']]
-            data = YahooFinance.crop_open_market_data(data)
             return data
         else:
             print(f"No data found for ticker '{ticker}' on Yahoo Finance.")
             return None
-
-    def crop_open_market_data(data):
-        # Filter the data to include only the times between market open and close
-        #data = data.between_time('09:30', '16:00')
-
-        return data
     
 if __name__ == "__main__":
     ticker = 'AAPL'
     data = YahooFinance.fetch_by_ticker(ticker)
     if data is not None:
-        print(data.head())
-        
+        print(data.head())        

@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from get_source_data import *
 import indicators
 from typing import List
+import glob
 
 class DataProcessor:
     """DataProcessor class to handle the preprocessing of stock data for model training and inference.
@@ -15,7 +16,7 @@ class DataProcessor:
     """
 
     def __init__(self, provider:str, tickers:List[str], train_split_amount:float=0.8, val_split_amount:float=0.1, lead:int=2,
-                 lag:int=12, inference:bool=False, col_to_predict:str='close'):
+                 lag:int=12, inference:bool=False, col_to_predict:str='close', tail:int=0):
         """Initialize the DataProcessor"""
         # Check for valid input
         assert lead > 0, 'Lead must be a positive integer'
@@ -24,6 +25,7 @@ class DataProcessor:
         #assert provider in globals(), f"{provider} is not a valid class in get_source_data"
         self.provider = provider
         self.tickers = tickers
+        self.tail = tail
         self.col_to_predict = col_to_predict
         self.inference = inference
         self.lead = lead
@@ -45,7 +47,8 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
-        ticker_df = ticker_df.tail(10000)
+        if self.tail > 0:
+            ticker_df = ticker_df.tail(self.tail)
         print(f"Length of data before applying features: {len(ticker_df)}")
 
         # Create labels
@@ -194,9 +197,36 @@ class DataProcessor:
 
     def process_all_tickers(self):
         """Process all tickers"""
+        self.cols = None
         for i, ticker in enumerate(self.tickers):
             data_splits = self.process_ticker(ticker, i)
             if data_splits:
                 self.save_data_splits(ticker, data_splits)
+                if self.cols is None:
+                    self.cols = len(data_splits['test']['X'][0])
+            del data_splits
         
-        return len(data_splits['test']['X'][0])
+        return self.cols
+    
+
+if __name__ == "__main__":
+    print("Processing data...")
+
+    # Get list of files
+    files = glob.glob('XNAS-20250204-NEXW4MSSYB/decompressed/*')
+
+    # Extract substrings between the last two periods
+    substrings = [os.path.basename(file).rsplit('.', 2)[1] for file in files]
+    # Remove substrings that are already in feature_dataframes
+    existing_files = glob.glob('feature_dataframes/*_features.pkl')
+    existing_tickers = [os.path.basename(file).split('_')[0] for file in existing_files]
+    substrings = [ticker for ticker in substrings if ticker not in existing_tickers]
+    print(f"Processing {len(substrings)} tickers")
+    lag = 60
+    lead = 5
+    tickers = substrings
+
+    provider = 'Databento'
+    processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.85, val_split_amount=0.15, col_to_predict='percent_change')
+    columns = processor.process_all_tickers()
+    print("Data processing complete.")

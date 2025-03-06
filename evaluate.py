@@ -4,7 +4,7 @@ import math
 import numpy as np
 import wandb
 
-def evaluate(df):
+def evaluate(df, inital=100):
     test_true = df['True Values'].values
     test_pred = df['Predictions'].values
 
@@ -24,20 +24,8 @@ def evaluate(df):
         "Prediction R2 Score": r2
     })
 
-    # Plot results
-    print(f"Start: {df['Datetime'].iloc[0]}")
-    print(f"End: {df['Datetime'].iloc[-1]}")
-    plt.figure(figsize=(10, 6))
-    plt.plot(df['True Values'], color='blue', label='True Values')
-    plt.plot(df['Predictions'], color='orange', label='Predictions')
-    plt.xlabel("Datetime")
-    plt.ylabel("Values")
-    plt.title("True Values vs. Predictions")
-    plt.legend()
-    wandb.log({"True Values vs Predictions": plt})
-
     # Initialize investments
-    initial = 100
+    initial = inital
     strategy_investment = hold_investment = only_positive_investment = initial
     correct_positive = tot_positive = 0
 
@@ -66,3 +54,15 @@ def evaluate(df):
     print(f"Final return on strategy investment: ${strategy_investment:.2f}")
     print(f"Final return on holding investment: ${hold_investment:.2f}")
     print(f"Greatest investment possible: ${only_positive_investment:.2f}")
+
+    # Plot results
+    print(f"Start: {df['Datetime'].iloc[0]}")
+    print(f"End: {df['Datetime'].iloc[-1]}")
+    plt.figure(figsize=(10, 6))
+    plt.plot(df['True Values'], color='blue', label='True Values')
+    plt.plot(df['Predictions'], color='orange', label='Predictions')
+    plt.xlabel("Datetime")
+    plt.ylabel("Values")
+    plt.title("True Values vs. Predictions")
+    plt.legend()
+    plt.show()

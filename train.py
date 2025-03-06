@@ -11,6 +11,7 @@ import wandb
 import time
 from predict import predict
 from evaluate import evaluate
+import glob
 
 print("Num GPUs Available: ", torch.cuda.device_count())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -90,7 +91,6 @@ if __name__ == "__main__":
 
     lag = 60
     lead = 5
-
     print("Processing data...")
     tickers = ['SPY'] # Example
     provider = 'Databento'
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     results_df = predict(model, test_loader, test_scalerY)
 
     # Evaluate model
-    evaluate(results_df)
+    evaluate(results_df, test_loader[0][1])
 
     # Finish the wandb run
     wandb.finish()

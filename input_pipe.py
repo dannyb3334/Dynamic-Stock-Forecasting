@@ -52,4 +52,6 @@ def load_feature_dataframes(tickers, mode, batch_size=32, shuffle=False):
     dataset = StockDataset(np.concatenate(dataframes['X']), np.concatenate(dataframes['y']))
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
+    print("Length of dataset:", len(dataset))
+
     return dataloader, dataframes['scalerY']

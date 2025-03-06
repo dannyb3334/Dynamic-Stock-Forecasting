@@ -5,6 +5,7 @@ from input_pipe import ModelMode, load_feature_dataframes
 from model import TransformerModel
 import pandas as pd
 from evaluate import evaluate
+import wandb
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
@@ -34,9 +35,12 @@ def predict(model, data_loader, scalerY):
     df['Datetime'] = pd.to_datetime(df['Datetime'], unit='ns').dt.tz_localize('UTC').dt.tz_convert('US/Eastern')
     return df
 
+
+
 if __name__ == "__main__":
     # Load model parameters
     model_dir  = 'models/best_transformer_model_1M_30lag.pth'
+    print("model_dir", model_dir)
     checkpoint = torch.load(model_dir)
     lag = checkpoint['lag']
     lead = checkpoint['lead']
@@ -47,9 +51,11 @@ if __name__ == "__main__":
     ff_dim = checkpoint['ff_dim']
     num_layers = checkpoint['num_layers']
     dropout = checkpoint['dropout']
+    wandb.init(project="dynamic-stock-forecasting")
+
 
     tickers = ['NVDA']
-    provider = 'Databento'
+    provider = 'YahooFinance'
     processor = DataProcessor(provider, tickers, lag=lag, lead=lead, inference=True, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
 
@@ -63,4 +69,7 @@ if __name__ == "__main__":
     results_df = predict(model, test_loader, test_scalerY)
 
     # Evaluate model
-    evaluate(results_df)
+    evaluate(results_df, 114.59)
+
+    # Finish the wandb run
+    wandb.finish()

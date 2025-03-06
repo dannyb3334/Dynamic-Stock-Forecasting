@@ -4,22 +4,6 @@
 
 This project aims to develop a Transformer-based model for predicting stock prices using historical stock data. The model leverages advanced deep learning techniques to forecast future stock prices based on past trends and patterns. Key functionalities include training the model, making predictions (inference), and evaluating the model's performance using various financial metrics.
 
-## Results
-
-The following images illustrate the model's performance on the SPY stock data provided by Databento, covering the period from May 2018 to January 2025:
-
-- **Test Data Metrics**:
-    ![Test Data Metrics](Resources/test_data_metrics.png)
-
-- **Test Data Scatter Plot (Zoomed)**:
-    ![Test Data Scatter Plot (Zoomed)](Resources/test_data_scatter_zoomed.png)
-
-- **Test Data Scatter Plot**:
-    ![Test Data Scatter Plot](Resources/test_data_scatter.png)
-
-- **Test Data Time Series**:
-    ![Test Data Time Series](Resources/test_data_time_series.png)
-
 
 ## Features
 
@@ -44,7 +28,7 @@ The project requires the following Python packages:
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/stock-prediction-transformer.git
+    git clone 'repo name'
     cd stock-prediction-transformer
     ```
 
