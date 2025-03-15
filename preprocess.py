@@ -4,9 +4,10 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 
 from get_source_data import *
-import indicators
+import features
 from typing import List
 import glob
+from tqdm import tqdm
 
 class DataProcessor:
     """DataProcessor class to handle the preprocessing of stock data for model training and inference.
@@ -41,6 +42,7 @@ class DataProcessor:
         print(f"Processing {ticker}")
         # Fetch data for the given ticker
         ticker_df = self.provider.fetch_by_ticker(ticker)
+  
         if ticker_df is None:
             return None
 
@@ -49,104 +51,126 @@ class DataProcessor:
         ticker_df.dropna(inplace=True)
         if self.tail > 0:
             ticker_df = ticker_df.tail(self.tail)
+            
+        # Reset index count to 0
+        ticker_df.reset_index(drop=True, inplace=True)
+
+        # Adjust for stock splits
+        self.adjust_for_stock_splits(ticker_df)
+
         print(f"Length of data before applying features: {len(ticker_df)}")
 
         # Create labels
-        self.apply_indicators(ticker_df)
-        assert self.col_to_predict in ticker_df.columns, \
-                    f"{self.col_to_predict} is not a feature column in the dataframe"
-        categorical_cols = self.apply_indicators(ticker_df)
-        print(ticker_df.columns)
-
+        self.create_features(ticker_df)
+        assert self.col_to_predict in ticker_df.columns and not self.col_to_predict.startswith('cat_'), \
+                f"{self.col_to_predict} is not a valid feature column in the dataframe"
+        # Extend the dataframe with zeros and fill in lead time
+        # WORKS
+        # zero_rows = pd.DataFrame(0, index=np.arange(self.lead), columns=ticker_df.columns)
+        # last_date = pd.to_datetime(ticker_df['date'].iloc[-1])
+        # next_dates = pd.date_range(start=last_date, periods=6, freq='T').tolist()[1:]
+        # zero_rows['date'] = next_dates
+        # ticker_df = pd.concat([ticker_df, zero_rows], ignore_index=True)
+        
         # Ensure the number of data points is a multiple of lag
         if len(ticker_df) % self.lag != 0:
             ticker_df = ticker_df[(len(ticker_df) % self.lag):]
         
-        print(f"Length of data after applying features: {len(ticker_df)}")
-        # Remove 'Date' column if it exists
-        # Separate the 'Date' column if it exists
+        print(f"Length of data after applying features: {len(ticker_df) - self.lead}")
+        
+
+
+        # Separate the date column from the rest of the dataframe
         date_df = ticker_df[['date']].copy().astype(int)
         date_df = date_df['date'].tolist()
         ticker_df.drop(columns=['date'], inplace=True)
 
-        num_cols = len(ticker_df.columns.tolist())
+        categorical_cols = [col for col in ticker_df.columns if col.startswith('cat_')]
+        print(f"Number of features: {len(ticker_df.columns.tolist())}")
+        print(ticker_df.columns.tolist())
+
+        # Scale Data
 
         # Create sequences and labels
         print(f"Creating sequences and labels")
-        X, y = self.create_sequences_and_labels(ticker_df, ticker_index, num_cols, categorical_cols, date_df)
-        print(f"Splitting and scaling data")
-        data_splits = self.split_and_scale_data(X, y)
+        X, y = self.create_sequences_and_labels(ticker_df, ticker_index, categorical_cols, date_df)
+
+        data_splits = self.create_data_splits(X, y)
         return data_splits
     
     def adjust_for_stock_splits(self, ticker_df):
         """Adjust the stock data for stock splits"""
-        ticker_df['pct_change'] = ticker_df['close'][::-1].pct_change()[::-1]
+        ticker_df['temp_pct_change'] = ticker_df['close'][::-1].pct_change()[::-1]
 
-        indices_to_check = ticker_df.index[ticker_df['pct_change'] > 1].tolist()[::-1]
+        indices_to_check = ticker_df.index[ticker_df['temp_pct_change'] > 1].tolist()[::-1]
+
         for idx in indices_to_check:
-            split_value = int(ticker_df.iloc[idx]['pct_change']) + 1
-            ticker_df.loc[0:idx, ['open', 'high', 'low', 'close']] /= split_value
-            ticker_df.loc[0:idx, ['volume']] *= split_value        
-
-    def create_sequences_and_labels(self, ticker_df, ticker_index, num_cols, categorical_cols, date_df):
+            split_value = int(ticker_df.iloc[idx]['temp_pct_change']) + 1
+            ticker_df.loc[0:idx, ['close', 'volume', 'open', 'high', 'low']] /= split_value
+            ticker_df.loc[0:idx, ['volume']] *= split_value    
+        # Drop the 'temp_pct_change' column
+        ticker_df.drop(columns=['temp_pct_change'], inplace=True)
+    
+    def create_sequences_and_labels(self, ticker_df, ticker_index, categorical_cols, date_df):
         """Create sequences and labels for the model"""
-        X, y = [], []
-        sin_vector = np.array([[np.sin(2 * np.pi * i / self.lag)]*num_cols for i in range(self.lag + self.lead)])
+        X, Y = [], []  # Sequence and label arrays
+        scaler = StandardScaler()
+        window_to_avg = (self.lag + self.lead) *5
+        sin_vector = np.array([[np.sin(2 * np.pi * i / self.lag)]*(len(ticker_df.columns)) for i in range(self.lag + self.lead)])
 
-        for j in range(self.lag, len(ticker_df)-self.lead+1):
-            # Create a zero-padded array for the lead
-            lead_zero_pad =  np.zeros(num_cols * self.lead)
-            # Fill known categorical values for the lead
-            for col in categorical_cols:
-                for lead_step in range(1, self.lead + 1):
-                    index_to_fill = (num_cols * (lead_step - 1)) + ticker_df.columns.get_loc(col)
-                    lead_zero_pad[index_to_fill] = ticker_df.loc[ticker_df.index[j + lead_step - 1], col]
 
+
+        feature_cols = [col for col in ticker_df.columns if col not in categorical_cols and col != self.col_to_predict]
+        feature_locs = [ticker_df.columns.get_loc(col) for col in feature_cols]
+        categorical_locs = [ticker_df.columns.get_loc(col) for col in categorical_cols]
+        target_loc = ticker_df.columns.get_loc(self.col_to_predict)
+        close_loc = ticker_df.columns.get_loc('close')
+
+        zero_padded_array = np.zeros((self.lead, len(ticker_df.columns)), dtype=np.float64)
+        ticker_df = ticker_df.values
+        scaler.fit(ticker_df)
+        mean, std = np.mean(ticker_df[:, target_loc]), np.std(ticker_df[:, target_loc], ddof=1)
+
+        for j in tqdm(range(self.lag + window_to_avg, len(ticker_df) - self.lead + 1), desc=f"Processing sequences for {ticker_index}"):
+            # Create zero-padded lead array
+            zero_padded_lead = zero_padded_array.copy()
+            # Fill in the lead time with the appropriate values
+            zero_padded_lead[:, categorical_locs] = ticker_df[j:j + self.lead, categorical_locs]  
+            # NumPy-based approach
+            lagged_sequences_array = ticker_df[j - self.lag:j].copy()
+            #windowed_array = ticker_df[j - self.lag - window_to_avg:j]
+
+            #scaler.fit(lagged_sequences_array[:, feature_locs])
+
+            lagged_sequences_array[:, feature_locs] = scaler.transform(lagged_sequences_array[:, feature_locs])
+            # Standardize the target column
+            #mean, std = np.mean(lagged_sequences_array[:, target_loc]), np.std(lagged_sequences_array[:, target_loc], ddof=1) # Match the behavior of pandas
+            lagged_sequences_array[:, target_loc] = (lagged_sequences_array[:, target_loc] - mean) / std
+            # Apply the same transformation to the target value
+            y = (ticker_df[j + self.lead - 1, target_loc] - mean) / std
             # Create the sequence
+    
             X.append(np.concatenate([
-                ticker_df.iloc[j - self.lag:j].values.flatten(), # Flatten the lagged data
-                lead_zero_pad # Add the zero-padded lead
-                ]) + sin_vector.flatten() # Apply sinuoidal positional encoding
-            )
-            y.append((ticker_df.iloc[j + self.lead - 1][self.col_to_predict], date_df[j], ticker_index)) # Value to predict
+                        lagged_sequences_array,
+                        zero_padded_lead
+                        ]).flatten() + sin_vector)
 
-        return np.array(X), np.array(y)
+            # Create the label
+            Y.append((y, date_df[j], ticker_df[j + self.lead - 1, close_loc], mean, std, ticker_index))
+        
+
+        X = np.array(X, dtype=np.float32)
+        Y = np.array(Y, dtype=np.float32)
+        print(f"X shape: {X.shape}, Y shape: {Y.shape}")
+        return X, Y
     
-    def apply_categoricals(self, ticker_df):
-        """Apply categorical indicators to the dataframe"""
-        # COS and SIN
-        # Time positional encoding
-        ticker_df['minute_cos'] = indicators.minute_of_day_cos(ticker_df)
-        ticker_df['minute_sin'] = indicators.minute_of_day_sin(ticker_df)
-
-        ticker_df['hour_cos'] = indicators.hour_of_day_cos(ticker_df)
-        ticker_df['hour_sin'] = indicators.hour_of_day_sin(ticker_df)
-
-        ticker_df['day_cos'] = indicators.day_of_week_cos(ticker_df)
-        ticker_df['day_sin'] = indicators.day_of_week_sin(ticker_df)
-
-        ticker_df['month_cos'] = indicators.month_cos(ticker_df)
-        ticker_df['month_sin'] = indicators.month_sin(ticker_df)
-
-        cat_cols = ['minute_cos', 'minute_sin', 'hour_cos', 'hour_sin', \
-                    'day_cos', 'day_sin', 'month_cos', 'month_sin']
-        return cat_cols
-    
-    def apply_indicators(self, ticker_df):
-        """Apply statistical indicators to the dataframe"""
-        ticker_df['ema'] = indicators.ema(ticker_df['close'])
-        ticker_df['sma'] = indicators.sma(ticker_df['close'])
-        ticker_df['roc'] = indicators.roc(ticker_df['close'])
-        ticker_df['percent_change'] = indicators.percent_change(ticker_df['close'])
-        ticker_df['difference'] = indicators.difference(ticker_df['close'])
-
+    def create_features(self, ticker_df):
+        """Apply statistical and categorical features to the dataframe"""
+        features.apply_features(ticker_df)
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        ticker_df.dropna(inplace=True)
+        ticker_df.dropna(inplace=True)        
 
-        indicator_cols = ['ema', 'sma', 'roc', 'percent_change', 'difference']
-        return indicator_cols
-
-    def split_and_scale_data(self, X, y):
+    def create_data_splits(self, X, y):
         """Split and scale the data"""
         if not self.inference:
             # Split data
@@ -154,37 +178,23 @@ class DataProcessor:
             train_split = int(length * self.train_split_amount)
             val_split = int(length * self.val_split_amount)
 
-            # Scale training data
-            train_scalerX = StandardScaler()
-            train_scalerY = StandardScaler()
-            train_X = train_scalerX.fit_transform(X[:train_split])
-            train_y = train_scalerY.fit_transform(y[:train_split])
+            train_X = X[:train_split]
+            train_y = y[:train_split]
 
-            # Scale validation data
-            val_scalerX = StandardScaler()
-            val_scalerY = StandardScaler()
-            val_X = val_scalerX.fit_transform(X[train_split:train_split + val_split])
-            val_y = val_scalerY.fit_transform(y[train_split:train_split + val_split])
+            val_X = X[train_split:train_split + val_split]
+            val_y = y[train_split:train_split + val_split]
 
-            # Scale test data
-            test_scalerX = StandardScaler()
-            test_scalerY = StandardScaler()
-            test_X = test_scalerX.fit_transform(X[train_split + val_split:])
-            test_y = test_scalerY.fit_transform(y[train_split + val_split:])
+            test_X = X[train_split + val_split:]
+            test_y = y[train_split + val_split:]
 
             return {
-                'train': {'X': train_X, 'y': train_y, 'scalerY': train_scalerY},
-                'val': {'X': val_X, 'y': val_y, 'scalerY': val_scalerY},
-                'test': {'X': test_X, 'y': test_y, 'scalerY': test_scalerY}
+                'train': {'X': train_X, 'y': train_y},
+                'val': {'X': val_X, 'y': val_y},
+                'test': {'X': test_X, 'y': test_y}
             }
         else:
-            # Scale inference data
-            scalerX = StandardScaler()
-            scalerY = StandardScaler()
-            X = scalerX.fit_transform(X)
-            y = scalerY.fit_transform(y)
             return {
-                'test': {'X': X, 'y': y, 'scalerY': scalerY}
+                'test': {'X': X, 'y': y}
             }
 
     def save_data_splits(self, ticker, data_splits):
@@ -212,21 +222,21 @@ class DataProcessor:
 if __name__ == "__main__":
     print("Processing data...")
 
-    # Get list of files
-    files = glob.glob('XNAS-20250204-NEXW4MSSYB/decompressed/*')
-
-    # Extract substrings between the last two periods
-    substrings = [os.path.basename(file).rsplit('.', 2)[1] for file in files]
-    # Remove substrings that are already in feature_dataframes
-    existing_files = glob.glob('feature_dataframes/*_features.pkl')
-    existing_tickers = [os.path.basename(file).split('_')[0] for file in existing_files]
-    substrings = [ticker for ticker in substrings if ticker not in existing_tickers]
-    print(f"Processing {len(substrings)} tickers")
-    lag = 60
+    ## Get list of files
+    #files = glob.glob('XNAS-20250204-NEXW4MSSYB/decompressed/*')
+#
+    ## Extract substrings between the last two periods
+    #substrings = [os.path.basename(file).rsplit('.', 2)[1] for file in files]
+    ## Remove substrings that are already in feature_dataframes
+    #existing_files = glob.glob('feature_dataframes/*_features.pkl')
+    #existing_tickers = [os.path.basename(file).split('_')[0] for file in existing_files]
+    #substrings = [ticker for ticker in substrings if ticker not in existing_tickers]
+    #print(f"Processing {len(substrings)} tickers")
+    lag = 30
     lead = 5
-    tickers = substrings
+    #tickers = substrings
 
     provider = 'Databento'
-    processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.85, val_split_amount=0.15, col_to_predict='percent_change')
+    processor = DataProcessor(provider, ['SPY'], lag=lag, lead=lead, train_split_amount=0.85, val_split_amount=0.15, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
     print("Data processing complete.")

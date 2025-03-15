@@ -4,8 +4,17 @@ import yfinance as yf
 import datetime
 
 """ Data classes require returned columns in format index= 'time' and columns= ['open', 'high', 'low', 'close', 'volume'] """
+class DataProvider:
 
-class Databento:
+    def fetch_by_ticker(ticker):
+        raise NotImplementedError("Subclasses should implement this method.")
+    
+    def crop_open_market_data(data):
+        # Filter the data to include only the times between market open and close
+        data = data.between_time('09:30', '16:00')
+        return data
+
+class Databento(DataProvider):
     def _find_csv_with_keyword(keyword, folder='XNAS-20250204-NEXW4MSSYB/decompressed/'):
         # List all files in the 'decompressed' folder
         for filename in os.listdir(folder):
@@ -28,20 +37,15 @@ class Databento:
             data = Databento.crop_open_market_data(data)
 
             data.reset_index(inplace=True)
+            
 
             return data
         else:
             print(f"No CSV file found containing the keyword '{ticker}' in the 'decompressed' folder.")
             return None
-
-    def crop_open_market_data(data):
-        # Filter the data to include only the times between market open and close
-        data = data.between_time('09:30', '16:00')
-
-        return data
     
 
-class YahooFinance:
+class YahooFinance(DataProvider):
     def fetch_by_ticker(ticker):
         end_date = datetime.datetime.now()
         start_date = end_date - datetime.timedelta(days=1)
@@ -53,7 +57,7 @@ class YahooFinance:
             data.index.name = 'Date'
             data = data[['Open', 'High', 'Low', 'Close', 'Volume', 'Date']]
             data.columns = [col.lower() for col in data.columns]
-            data = data[['date', 'close','volume', 'open', 'high', 'low']]
+            data = data[['date', 'close', 'volume', 'open', 'high', 'low']]
             return data
         else:
             print(f"No data found for ticker '{ticker}' on Yahoo Finance.")

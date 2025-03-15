@@ -1,6 +1,11 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
 class TransformerEncoder(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.0):
         super(TransformerEncoder, self).__init__()
@@ -27,11 +32,9 @@ class TransformerEncoder(nn.Module):
         return x + y
 
 class TransformerModel(nn.Module):
-    def __init__(self, input_dim, seq_len, features, embed_dim, num_heads, ff_dim, num_layers, dropout=0.0):
+    def __init__(self, seq_len, features, embed_dim, num_heads, ff_dim, num_layers, dropout=0.0):
         super(TransformerModel, self).__init__()
-        
-        assert input_dim == seq_len * features, f"Expected input_dim={seq_len * features} \
-                                                for {seq_len} time steps of {features} features. Given{input_dim}"        
+   
         self.input_projection = nn.Linear(features, embed_dim)
         self.encoder_layers = nn.ModuleList([
             TransformerEncoder(embed_dim, num_heads, ff_dim, dropout) for _ in range(num_layers)
@@ -68,6 +71,29 @@ class TransformerModel(nn.Module):
         x = self.global_avg_pool(x.permute(0, 2, 1)).squeeze(-1)
         x = self.layer_norm(x)
         return self.fc_out(x).squeeze(-1)
+    
+    def create_positional_encoding(self, seq_len, embed_dim):
+        position = torch.arange(seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embed_dim, 2, dtype=torch.float) * (-math.log(10000.0) / embed_dim))
+        pe = torch.zeros(1, seq_len, embed_dim)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        return pe
 
+if __name__ == "__main__":
+    # Hyperparameters
+    embed_dim = 128  # 16 dims per head 
+    num_heads = 8
+    ff_dim = 512
+    num_layers = 6
+    dropout = 0.3
+    lag = 30
+    lead = 5
 
+    features_per_time_step = 26
+    total_columns = features_per_time_step * (lag + lead)
 
+    input_dim = total_columns
+
+    # Instantiate model
+    model = TransformerModel(input_dim, lag+lead, features_per_time_step, embed_dim, num_heads, ff_dim, num_layers, dropout)
