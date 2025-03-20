@@ -1,75 +1,68 @@
-import numpy as np
 import torch
 from preprocess import DataProcessor
 from input_pipe import ModelMode, load_feature_dataframes
 from model import TransformerModel
-import pandas as pd
-from evaluate import evaluate
-import wandb
+from evaluate import evaluate, test
 
+# Set the device to GPU if available, otherwise exit (only GPU is supported)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
     print("Using CPU")
-    exit()  # Only use GPU (preference)
-
-def predict(model, data_loader, scalerY):
-    model.eval()
-    y_pred = []
-    y_true = []
-    
-    with torch.no_grad():
-        for inputs, targets in data_loader:
-            inputs = inputs.to(device)
-            outputs = model(inputs).cpu().detach().numpy()
-            temp = np.column_stack((outputs, np.zeros_like(outputs), np.zeros_like(outputs)))  # Add a second column of zeros for transformation
-            unscaled_outputs = scalerY[0].inverse_transform(temp)[:, 0]
-            unscaled_targets = scalerY[0].inverse_transform(targets)
-            y_pred.extend(unscaled_outputs)
-            y_true.extend(unscaled_targets)
-
-    y_pred = np.array(y_pred).reshape(-1, 1)
-    y_true = np.array(y_true)
-
-    merged = np.hstack((y_pred, y_true))
-    df = pd.DataFrame(merged, columns=["Predictions", "True Values", "Datetime", "Ticker"])
-    df['Datetime'] = pd.to_datetime(df['Datetime'], unit='ns').dt.tz_localize('UTC').dt.tz_convert('US/Eastern')
-    return df
-
-
+    exit()  # Exit if no GPU is available
 
 if __name__ == "__main__":
-    # Load model parameters
-    model_dir  = 'models/best_transformer_model_1M_30lag.pth'
-    print("model_dir", model_dir)
-    checkpoint = torch.load(model_dir)
-    lag = checkpoint['lag']
-    lead = checkpoint['lead']
-    input_dim = checkpoint['input_dim']
-    features = checkpoint['features']
-    embed_dim = checkpoint['embed_dim']
-    num_heads = checkpoint['num_heads']
-    ff_dim = checkpoint['ff_dim']
-    num_layers = checkpoint['num_layers']
-    dropout = checkpoint['dropout']
-    wandb.init(project="dynamic-stock-forecasting")
+    # Load model parameters from the saved checkpoint
+    model_dir = "models/best_model.pth"
+    checkpoint = torch.load(model_dir, weights_only=True)
 
+    # Extract model configuration from the checkpoint
+    lag = checkpoint['lag']  # Number of lagging time steps
+    lead = checkpoint['lead']  # Number of leading time steps
+    n_features = checkpoint['features']  # Number of input features
+    embed_dim = checkpoint['embed_dim']  # Embedding dimension
+    num_heads = checkpoint['num_heads']  # Number of attention heads
+    ff_dim = checkpoint['ff_dim']  # Feed-forward network dimension
+    num_layers = checkpoint['num_layers']  # Number of transformer layers
+    dropout = checkpoint['dropout']  # Dropout rate
+    seq_len = lag + lead  # Total sequence length
+    tickers = checkpoint['tickers']  # List of stock tickers
+    col_to_predict = checkpoint['column_to_predict']  # Column to predict
 
-    tickers = ['NVDA']
-    provider = 'YahooFinance'
-    processor = DataProcessor(provider, tickers, lag=lag, lead=lead, inference=True, col_to_predict='percent_change')
-    columns = processor.process_all_tickers()
+    # Print the column to predict and tickers for debugging
+    print(col_to_predict)
+    print(tickers)
 
-    test_loader, test_scalerY = load_feature_dataframes(tickers, ModelMode.INFERENCE, batch_size=256, shuffle=False)
+    # Expected that the inference set is already prepared
+    # Uncomment the following lines to prepare the data if needed
+    # Define the data provider (e.g., Databento)
+    # provider = 'Databento'
+    # processor = DataProcessor(provider, tickers, lag=lag, lead=lead, inference=True, col_to_predict='col_to_predict', tail = 1000)
+    # columns = processor.process_all_tickers()
 
-    # Instantiate model
-    model = TransformerModel(input_dim, lag+lead, features, embed_dim, num_heads, ff_dim, num_layers, dropout).to(device)
+    # Load test data using the feature dataframes loader
+    # ModelMode.INFERENCE ensures the data is prepared for evaluation
+    test_loader, _ = load_feature_dataframes(tickers, ModelMode.INFERENCE, batch_size=128, shuffle=False)
+
+    # Instantiate the Transformer model with the loaded parameters
+    model = TransformerModel(
+        seq_len=seq_len,
+        features=n_features,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        ff_dim=ff_dim,
+        num_layers=num_layers,
+        dropout=dropout
+    ).to(device)
+
+    # Load the model's state dictionary from the checkpoint
     model.load_state_dict(torch.load(model_dir, weights_only=True)['model_state_dict'])
 
+    # Make predictions using the test data
     print("Making predictions...")
-    results_df = predict(model, test_loader, test_scalerY)
+    results_df = test(model, test_loader, device)
 
-    # Evaluate model
-    evaluate(results_df, 114.59)
+    # Set the index of the results dataframe to 'Datetime' for better organization
+    results_df.set_index('Datetime', inplace=True)
 
-    # Finish the wandb run
-    wandb.finish()
+    # Evaluate the model's performance using the predictions
+    evaluate(results_df, wandb=False)
