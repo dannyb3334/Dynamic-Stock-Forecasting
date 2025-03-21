@@ -17,15 +17,18 @@ class DataProcessor:
     """
 
     def __init__(self, provider:str, tickers:List[str], train_split_amount:float=0.8, val_split_amount:float=0.1, lead:int=5,
-                 lag:int=30, inference:bool=False, col_to_predict:str='close', tail:int=0, window_size:int=15):
+                 lag:int=30, inference:bool=False, col_to_predict:str='close', tail:int=0, window_size:int=15, step:int=0):
         """Initialize the DataProcessor"""
         # Check for valid input
         assert train_split_amount + val_split_amount <= 1, 'Train and validation split amounts must sum to 1 or less'
         assert window_size >= 1, 'Window size must be a positive integer'
         assert lead > 0, 'Lead must be a positive integer'
         assert lag > 0, 'Lag must be a positive integer'
+        assert tail >= 0, 'Tail must be a non-negative integer'
+        assert step >= 0, 'Skip must be a non-negative integer'
         provider = eval(provider)
         #assert provider in globals(), f"{provider} is not a valid class in get_source_data"
+        self.step = step
         self.window_size = window_size
         self.provider = provider
         self.tickers = tickers
@@ -52,6 +55,18 @@ class DataProcessor:
         # Remove holes in dataset
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
+
+        if self.step:
+            prev_col = len(ticker_df) -1
+            for col in range(len(ticker_df)-self.step, 0, -self.step):
+                segment = ticker_df.iloc[col:prev_col + 1]
+                ticker_df.at[prev_col, 'high'] = segment['high'].max()
+                ticker_df.at[prev_col, 'low'] = segment['low'].min()
+                ticker_df.at[prev_col, 'volume'] = segment['volume'].sum()
+                ticker_df.at[prev_col, 'open'] = ticker_df.at[col, 'open']
+                prev_col = col - 1
+            ticker_df = ticker_df.iloc[self.step - 1 + len(ticker_df) % self.step:: self.step]
+
         if self.tail > 0:
             ticker_df = ticker_df.tail(self.tail)
             

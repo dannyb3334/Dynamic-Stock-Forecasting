@@ -139,3 +139,4 @@ cython_debug/
 .vscode/
 XNAS-20250204-NEXW4MSSYB/
 trading.py
+test.py

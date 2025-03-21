@@ -128,7 +128,7 @@ if __name__ == "__main__":
     lag = 60
     lead = 5
     print("Processing data...")
-    tickers = ['SPY']
+    tickers = ['AAPL']
     provider = 'Databento'
     column_to_predict = 'percent_change'
     
@@ -139,6 +139,7 @@ if __name__ == "__main__":
 
     train_loader, columns = load_feature_dataframes(tickers, ModelMode.TRAIN, batch_size=128, shuffle=True)
     val_loader, _ = load_feature_dataframes(tickers, ModelMode.EVAL, batch_size=128, shuffle=False)
+
 
     n_features = columns // (lag + lead)
     seq_len = lag + lead

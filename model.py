@@ -72,6 +72,7 @@ class TransformerModel(nn.Module):
         ])
 
         # Final layer normalization and output layer
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         self.layer_norm = nn.LayerNorm(embed_dim, eps=1e-6)
         self.fc_out = nn.Linear(embed_dim, 1, bias=True)
 
@@ -86,8 +87,8 @@ class TransformerModel(nn.Module):
         for encoder in self.encoder_layers:
             x = encoder(x)
 
-        # Take the last timestep's output instead of global average pooling
-        x = x[:, -1, :]  # Shape: (batch_size, embed_dim)
+        #x = x[:, -1, :]  # Shape: (batch_size, embed_dim)
+        x = self.global_avg_pool(x.permute(0, 2, 1)).squeeze(-1)  # Shape: (batch_size, embed_dim)
 
         # Apply final layer normalization and output layer
         x = self.layer_norm(x)
