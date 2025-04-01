@@ -143,7 +143,7 @@ if __name__ == "__main__":
     
     # Initialize and process data using DataProcessor
     processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.90, 
-                              val_split_amount=0.05, col_to_predict=column_to_predict, tail=10000)
+                              val_split_amount=0.05, col_to_predict=column_to_predict, tail=1000)
     columns = processor.process_all_tickers()
     print("Data processing complete.")
 

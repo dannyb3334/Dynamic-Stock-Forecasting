@@ -28,7 +28,7 @@ class Databento(DataProvider):
     Data provider for fetching data from local CSV files.
     """
 
-    def _find_csv_with_keyword(keyword, folder='XNAS-20250204-NEXW4MSSYB/decompressed/'):
+    def _find_csv_with_keyword(keyword, folder='/media/zebrafish/b99d80c5-51f6-4522-a87a-0d7dd736196a/decompressed'):
         """
         Searches for a CSV file in the specified folder that contains the given keyword.
         """

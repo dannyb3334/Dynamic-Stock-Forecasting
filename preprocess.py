@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 
 from get_source_data import *
-import features
+import create_features
 from typing import List
 import glob
 from tqdm import tqdm
@@ -189,7 +189,7 @@ class DataProcessor:
     def create_features(self, ticker_df):
         """Apply statistical and categorical features to the dataframe"""
         # Apply specified features to the dataframe
-        features.apply_features(ticker_df)
+        create_features.apply_features(ticker_df)
         # Clean the data
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)        
