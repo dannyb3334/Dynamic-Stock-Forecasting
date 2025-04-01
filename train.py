@@ -11,13 +11,14 @@ import wandb
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from tqdm import tqdm
 
+# Check GPU availability and set device
 print("Num GPUs Available: ", torch.cuda.device_count())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
     print("Using CPU")
     exit() # Only use GPU (preference)
 
-
+# Define the training function
 def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs, save_dict, wandb=False):
     best_val_loss = float('inf')
     model_name = "models/best_model.pth"
@@ -27,14 +28,18 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
     
     train_losses, val_losses = [], []
     
+    # Iterate through epochs
     for epoch in range(epochs):
+        # Set model to training mode
         model.train()
         train_loss, total_train_samples = 0.0, 0
         
+        # Iterate through training data
         for inputs, targets, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):  # Ignore m since global scaling removes need for per-batch mean/std
             inputs = inputs.to(device).view(-1, model.seq_len, model.features)
             targets = targets.to(device)
             
+            # Zero gradients, perform forward pass, calculate loss, backpropagate, and update weights
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)  # MSE loss directly on scaled values
@@ -50,10 +55,11 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
         train_loss /= total_train_samples
         train_losses.append(train_loss)
         
-        # Validation
+        # Validation phase
         model.eval()
         val_loss, total_val_samples = 0.0, 0
         
+        # Disable gradient calculation for validation
         with torch.no_grad():
             for inputs, targets, _ in tqdm(val_loader, desc="Validation"):
                 inputs = inputs.to(device).view(-1, model.seq_len, model.features)
@@ -71,8 +77,8 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
         
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
         
+        # Log metrics to WandB if enabled
         if wandb:
-            # Log metrics to WandB
             wandb.log({
                 "epoch": epoch + 1,
                 "train_loss": train_loss,
@@ -80,6 +86,7 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
                 "best_val_loss": best_val_loss
             })
         
+        # Save the best model based on validation loss
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             save_dict['model_state_dict'] = model.state_dict()
@@ -93,6 +100,7 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
     
     print("Training complete. Best Validation Loss: ", best_val_loss)
 
+    # Plot training and validation loss
     plt.figure(figsize=(10, 6))
     plt.plot(train_losses, label='Train Loss')
     plt.plot(val_losses, label='Validation Loss')
@@ -105,6 +113,7 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, criterion
 
     return train_losses, val_losses
 
+# Define a combined loss function
 class CombinedLoss(nn.Module):
     def __init__(self, primary_criterion='nn.MSELoss()', primary_criterion_weight=0.3, direction_weight=0.7):
         super().__init__()
@@ -120,7 +129,7 @@ class CombinedLoss(nn.Module):
         direction_loss = (1 - sign_correct).mean()  # Proportion of incorrect signs
         return self.criterion_weight * criterion_loss + self.direction_weight * direction_loss
 
-
+# Main execution block
 if __name__ == "__main__":
 
     #wandb.init(project="Stock_Transformer", entity="your_entity_name")  # Replace with your WandB entity name
@@ -132,15 +141,17 @@ if __name__ == "__main__":
     provider = 'Databento'
     column_to_predict = 'percent_change'
     
+    # Initialize and process data using DataProcessor
     processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.90, 
                               val_split_amount=0.05, col_to_predict=column_to_predict, tail=10000)
     columns = processor.process_all_tickers()
     print("Data processing complete.")
 
+    # Load training and validation data
     train_loader, columns = load_feature_dataframes(tickers, ModelMode.TRAIN, batch_size=128, shuffle=True)
     val_loader, _ = load_feature_dataframes(tickers, ModelMode.EVAL, batch_size=128, shuffle=False)
 
-
+    # Extract feature information
     n_features = columns // (lag + lead)
     seq_len = lag + lead
 
@@ -151,6 +162,7 @@ if __name__ == "__main__":
     num_layers = 4
     dropout = 0.2
 
+    # Initialize the Transformer model
     model = TransformerModel(
         seq_len=seq_len,
         features=n_features,
@@ -161,6 +173,7 @@ if __name__ == "__main__":
         dropout=dropout
     ).to(device)
 
+    # Define optimizer and learning rate scheduler
     optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.001)
     
     #criterion = CombinedLoss(primary_criterion='nn.L1Loss()', primary_criterion_weight=0.3, direction_weight=0.7) # Directional loss
@@ -170,6 +183,7 @@ if __name__ == "__main__":
 
     epochs = 32
 
+    # Save dictionary
     save_dict = {
         'model_state_dict': None,
         'column_to_predict': column_to_predict,
@@ -184,6 +198,7 @@ if __name__ == "__main__":
         'dropout': dropout
     }
 
+    # Train the model
     print("Training model...")
     train_model(model, train_loader, val_loader, optimizer, scheduler, criterion, epochs, save_dict, wanb)
     print("Training complete. Model saved.")

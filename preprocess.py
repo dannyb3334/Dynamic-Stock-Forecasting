@@ -56,10 +56,12 @@ class DataProcessor:
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)
 
+        # Sample data on the set interval
         if self.step:
             prev_col = len(ticker_df) -1
             for col in range(len(ticker_df)-self.step, 0, -self.step):
                 segment = ticker_df.iloc[col:prev_col + 1]
+                # OHLCV aggregation
                 ticker_df.at[prev_col, 'high'] = segment['high'].max()
                 ticker_df.at[prev_col, 'low'] = segment['low'].min()
                 ticker_df.at[prev_col, 'volume'] = segment['volume'].sum()
@@ -67,6 +69,7 @@ class DataProcessor:
                 prev_col = col - 1
             ticker_df = ticker_df.iloc[self.step - 1 + len(ticker_df) % self.step:: self.step]
 
+        # Crop the dataframe to the specified tail length
         if self.tail > 0:
             ticker_df = ticker_df.tail(self.tail)
             
@@ -102,28 +105,30 @@ class DataProcessor:
         date_df = date_df['date'].tolist()
         ticker_df.drop(columns=['date'], inplace=True)
 
-        # Separate the 'close' column from the rest of the dataframe
+        # Separate the 'close' column for later profit calculation
         close_df = ticker_df[['close']].copy()
         close_df = close_df['close'].tolist()
 
+        # Identify categorical columns for lead time
         categorical_cols = [col for col in ticker_df.columns if col.startswith('cat_')]
+
         print(f"Number of features: {len(ticker_df.columns.tolist())}")
         print(ticker_df.columns.tolist())
-
 
         # Create sequences and labels
         print(f"Creating sequences and labels")
         X, y = self.create_sequences_and_labels(ticker_df, ticker_index, categorical_cols, date_df, close_df)
 
+        # Create the data splits
         data_splits = self.create_data_splits(X, y)
         return data_splits
     
     def adjust_for_stock_splits(self, ticker_df):
         """Adjust the stock data for stock splits"""
+        # Identify the rows where the percentage change is greater than 100%
         ticker_df['temp_pct_change'] = ticker_df['close'][::-1].pct_change()[::-1]
-
         indices_to_check = ticker_df.index[ticker_df['temp_pct_change'] > 1].tolist()[::-1]
-
+        # Adjust the OHLCV that preceed the split
         for idx in indices_to_check:
             split_value = int(ticker_df.iloc[idx]['temp_pct_change']) + 1
             ticker_df.loc[0:idx, ['close', 'volume', 'open', 'high', 'low']] /= split_value
@@ -135,9 +140,10 @@ class DataProcessor:
         """Create sequences and labels for the model"""
         X, Y = [], []  # Sequence and label arrays
         scaler = StandardScaler()
-        window_to_avg = (self.lag + self.lead) * self.window_size
+        window_to_avg = (self.lag + self.lead) * self.window_size # Ensure window_to_avg is a multiple of the sequence length
         print(f"Window to average: {window_to_avg}")
 
+        # Convert pandas to numpy, keep track of column locations
         feature_cols = [col for col in ticker_df.columns if col not in categorical_cols and col != self.col_to_predict]
         feature_locs = [ticker_df.columns.get_loc(col) for col in feature_cols]
         categorical_locs = [ticker_df.columns.get_loc(col) for col in categorical_cols]
@@ -146,6 +152,7 @@ class DataProcessor:
         zero_padded_array = np.zeros((self.lead, len(ticker_df.columns)), dtype=np.float64)
         ticker_df = ticker_df.values    
 
+        # Step through the dataframe to create sequences, using a sliding window approach for normalization
         for j in tqdm(range(self.lag + window_to_avg, len(ticker_df) - self.lead + 1), desc=f"Processing sequences for {ticker_index}"):
             # Create zero-padded lead array
             zero_padded_lead = zero_padded_array.copy()
@@ -181,7 +188,9 @@ class DataProcessor:
     
     def create_features(self, ticker_df):
         """Apply statistical and categorical features to the dataframe"""
+        # Apply specified features to the dataframe
         features.apply_features(ticker_df)
+        # Clean the data
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         ticker_df.dropna(inplace=True)        
 
@@ -219,7 +228,7 @@ class DataProcessor:
         # Save the dataframe
         with open(f'feature_dataframes/{ticker}_features.pkl', 'wb') as f:
             pickle.dump(data_splits, f)
-        del data_splits # Free up memory    
+            
 
     def process_all_tickers(self):
         """Process all tickers"""
@@ -227,26 +236,11 @@ class DataProcessor:
             data_splits = self.process_ticker(ticker, i)
             if data_splits:
                 self.save_data_splits(ticker, data_splits)
-            del data_splits    
+            del data_splits # Free up memory
 
 if __name__ == "__main__":
-    print("Processing data...")
-
-    ## Get list of files
-    #files = glob.glob('XNAS-20250204-NEXW4MSSYB/decompressed/*')
-#
-    ## Extract substrings between the last two periods
-    #substrings = [os.path.basename(file).rsplit('.', 2)[1] for file in files]
-    ## Remove substrings that are already in feature_dataframes
-    #existing_files = glob.glob('feature_dataframes/*_features.pkl')
-    #existing_tickers = [os.path.basename(file).split('_')[0] for file in existing_files]
-    #substrings = [ticker for ticker in substrings if ticker not in existing_tickers]
-    #print(f"Processing {len(substrings)} tickers")
-    lag = 30
-    lead = 5
-    #tickers = substrings
-
+    print("Example Usage")
     provider = 'Databento'
-    processor = DataProcessor(provider, ['SPY'], lag=lag, lead=lead, train_split_amount=0.85, val_split_amount=0.15, col_to_predict='percent_change')
+    processor = DataProcessor(provider, ['SPY'], lag=30, lead=5, train_split_amount=0.85, val_split_amount=0.15, col_to_predict='percent_change')
     columns = processor.process_all_tickers()
     print("Data processing complete.")
