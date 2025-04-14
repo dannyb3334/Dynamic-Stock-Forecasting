@@ -6,7 +6,7 @@ import wandb
 import pandas as pd
 import torch
 
-def evaluate(df, wandb=False):
+def evaluate(df, wandb_logging=False):
     """
     Evaluate the model's predictions and compare them with true values.
     Includes metrics calculation, strategy backtesting, and visualization.
@@ -37,7 +37,7 @@ def evaluate(df, wandb=False):
         "Prediction RMSE": rmse,
         "Prediction R2 Score": r2
     }
-    if wandb:
+    if wandb_logging:
         wandb.log(metrics)
     else:
         print(metrics)
@@ -92,7 +92,7 @@ def evaluate(df, wandb=False):
     plt.close()
 
 
-def test(model, data_loader, device):
+def predict(model, data_loader, device):
     """
     Test the model on a given dataset and return a DataFrame with predictions and true values.
 
@@ -105,19 +105,20 @@ def test(model, data_loader, device):
         pd.DataFrame: DataFrame containing predictions, true values, and additional metadata.
     """
     model.eval()  # Set the model to evaluation mode
+    
     y_pred = []
     y_true = [[], [], [], []]  # To store true values and metadata
 
     with torch.no_grad():  # Disable gradient computation
         for inputs, targets, m in data_loader:
             # Prepare inputs and metadata
+            # Check for NaN values in inputs and assert if found
             inputs = inputs.to(device).view(-1, model.seq_len, model.features)
             targets = targets.numpy()
             m = m.numpy()
 
             # Get model predictions
-            outputs = model(inputs).detach().cpu().numpy()
-
+            outputs = model(inputs).cpu().numpy()
             # Unscale predictions and targets
             unscaled_outputs = outputs * m[:, 3] + m[:, 2]
             unscaled_targets = targets * m[:, 3] + m[:, 2]
@@ -137,7 +138,7 @@ def test(model, data_loader, device):
     df = pd.DataFrame({
         "Predictions": y_pred,
         "True Values": y_true[0],
-        "Datetime": y_true[1],
+        "Datetime": pd.to_datetime(y_true[1]).strftime('%Y-%m-%d %H:%M'),
         "Close": y_true[2],
         "Ticker": y_true[3]
     })

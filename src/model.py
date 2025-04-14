@@ -81,15 +81,14 @@ class TransformerModel(nn.Module):
 
     def forward(self, x):
         # Add positional encoding to input embeddings
-        x = self.input_projection(x) + self.pos_encoding[:, :x.shape[1], :]
+        x = self.input_projection(x)
+        x = x + self.pos_encoding[:, :x.shape[1], :]
 
         # Pass through each Transformer encoder layer
         for encoder in self.encoder_layers:
-            x = encoder(x)
-
+            x = encoder(x)  
         #x = x[:, -1, :]  # Shape: (batch_size, embed_dim)
         x = self.global_avg_pool(x.permute(0, 2, 1)).squeeze(-1)  # Shape: (batch_size, embed_dim)
-
         # Apply final layer normalization and output layer
         x = self.layer_norm(x)
         x = self.fc_out(x)

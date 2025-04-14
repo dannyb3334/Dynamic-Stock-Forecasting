@@ -4,7 +4,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from preprocess import DataProcessor
-from input_pipe import ModelMode, load_feature_dataframes
+from input_pipe import ModelMode, format_feature_dataframes
 from model import TransformerModel
 import wandb
 
@@ -143,23 +143,23 @@ if __name__ == "__main__":
     
     # Initialize and process data using DataProcessor
     processor = DataProcessor(provider, tickers, lag=lag, lead=lead, train_split_amount=0.90, 
-                              val_split_amount=0.05, col_to_predict=column_to_predict, tail=10000)
+                              val_split_amount=0.05, col_to_predict=column_to_predict, tail=100000)
     columns = processor.process_all_tickers()
     print("Data processing complete.")
 
     # Load training and validation data
-    train_loader, columns = load_feature_dataframes(tickers, ModelMode.TRAIN, batch_size=128, shuffle=True)
-    val_loader, _ = load_feature_dataframes(tickers, ModelMode.EVAL, batch_size=128, shuffle=False)
+    train_loader, columns = format_feature_dataframes(tickers, ModelMode.TRAIN, batch_size=128, shuffle=True)
+    val_loader, _ = format_feature_dataframes(tickers, ModelMode.EVAL, batch_size=128, shuffle=False)
 
     # Extract feature information
     n_features = columns // (lag + lead)
     seq_len = lag + lead
 
     ## Hyperparameters
-    embed_dim = 128
+    embed_dim = 512
     num_heads = 16
-    ff_dim = 512
-    num_layers = 4
+    ff_dim = 2048
+    num_layers = 6
     dropout = 0.2
 
     # Initialize the Transformer model

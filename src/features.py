@@ -267,6 +267,12 @@ def apply_features(ticker_df):
     ticker_df['stochastic_d'] = d
     ticker_df['atr'] = average_true_range(ticker_df)
 
+    return ticker_df
+
+def apply_categorical_features(ticker_df):
+    """
+    Apply categorical features to the ticker_df.
+    """
     # Categorical features
     # COS and SIN
     # Time positional encoding

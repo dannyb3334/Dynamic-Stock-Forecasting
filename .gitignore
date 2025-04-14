@@ -140,3 +140,7 @@ cython_debug/
 XNAS-20250204-NEXW4MSSYB/
 trading.py
 test.py
+*.txt
+feature_dataframes/*.pkl
+models/*.pth
+plots/*

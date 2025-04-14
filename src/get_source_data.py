@@ -28,7 +28,7 @@ class Databento(DataProvider):
     Data provider for fetching data from local CSV files.
     """
 
-    def _find_csv_with_keyword(keyword, folder='XNAS-20250204-NEXW4MSSYB/decompressed/'):
+    def _find_csv_with_keyword(keyword, folder='/media/zebrafish/b99d80c5-51f6-4522-a87a-0d7dd736196a/decompressed'):
         """
         Searches for a CSV file in the specified folder that contains the given keyword.
         """
@@ -64,14 +64,15 @@ class YahooFinance(DataProvider):
     Data provider for fetching data from Yahoo Finance.
     """
     # See https://pypi.org/project/yfinance/ for more details on the library
-    def fetch_by_ticker(ticker, start_date='', end_date='', interval='1m'):
+    def fetch_by_ticker(ticker, start_date='2025-04-11', end_date='2025-04-13', interval='1m'):
         """
         Fetches historical data for the given ticker from Yahoo Finance.
         """
         # If no start and end date are provided, fetch data for the last day
         if start_date == '' and end_date == '':
-            start_date = end_date - datetime.timedelta(days=1)
+            print("Fetching data for the last week...")
             end_date = datetime.datetime.now()
+            start_date = end_date - datetime.timedelta(days=7)
             data = yf.download(ticker, interval='1m', start=start_date, end=end_date)
         else:
             data = yf.download(ticker, interval=interval, start=start_date, end=end_date)

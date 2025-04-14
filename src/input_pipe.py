@@ -50,7 +50,7 @@ class StockDataset(Dataset):
         return self.sequences[idx], self.labels[idx], self.metadata[idx]
 
 # Function to load feature dataframes and create a DataLoader
-def load_feature_dataframes(tickers, mode, batch_size=32, shuffle=False):
+def format_feature_dataframes(tickers, mode, batch_size=32, shuffle=False):
     """
     Load feature dataframes for the specified tickers and mode, and return a DataLoader.
 

@@ -17,7 +17,7 @@ class DataProcessor:
     """
 
     def __init__(self, provider:str, tickers:List[str], train_split_amount:float=0.8, val_split_amount:float=0.1, lead:int=5,
-                 lag:int=30, inference:bool=False, col_to_predict:str='close', tail:int=0, window_size:int=15, step:int=0):
+                 lag:int=30, inference:bool=False, unknown_y:bool=False, col_to_predict:str='close', tail:int=0, window_size:int=15, step:int=0):
         """Initialize the DataProcessor"""
         # Check for valid input
         assert train_split_amount + val_split_amount <= 1, 'Train and validation split amounts must sum to 1 or less'
@@ -34,7 +34,8 @@ class DataProcessor:
         self.tickers = tickers
         self.tail = tail
         self.col_to_predict = col_to_predict
-        self.inference = inference
+        self.unknown_y = unknown_y
+        self.inference = inference or unknown_y
         self.lead = lead
         self.lag = lag
 
@@ -81,33 +82,45 @@ class DataProcessor:
 
         print(f"Length of data before applying features: {len(ticker_df)}")
 
-        # Create labels
+        # Create features
         self.create_features(ticker_df)
         assert self.col_to_predict in ticker_df.columns and not self.col_to_predict.startswith('cat_'), \
                 f"{self.col_to_predict} is not a valid feature column in the dataframe"
         
-        # Extend the dataframe with zeros and fill in lead time
-        # zero_rows = pd.DataFrame(0, index=np.arange(self.lead), columns=ticker_df.columns)
-        # last_date = pd.to_datetime(ticker_df['date'].iloc[-1])
-        # next_dates = pd.date_range(start=last_date, periods=6, freq='T').tolist()[1:]
-        # zero_rows['date'] = next_dates
-        # ticker_df = pd.concat([ticker_df, zero_rows], ignore_index=True)
+        # Fill future expeceted datetime periods
+        if self.unknown_y:
+            new_rows = pd.DataFrame(0, index=np.arange(self.lead), columns=ticker_df.columns)
+            last_date = ticker_df['date'].iloc[-1]
+            second_last_date = ticker_df['date'].iloc[-2]
+            time_delta = last_date - second_last_date
+            for i in range(1, self.lead + 1):
+                next_date = last_date + time_delta
+                # If next_date's time is after 4:00 PM, set it to 9:30 AM the next day
+                if next_date.hour >= 16:
+                    next_date += pd.Timedelta(hours=17, minutes=30)
+                # If next_date is Saturday, add 2 days to move to Monday
+                if next_date.weekday() == 5:
+                    next_date += pd.Timedelta(days=2)
+                new_rows.at[i - 1, 'date'] = next_date
+                last_date = next_date
+            ticker_df = pd.concat([ticker_df, new_rows])
         
+        # Create categorical features
+        self.create_categoricals(ticker_df)
+
         # Ensure the number of data points is a multiple of lag
         if len(ticker_df) % self.lag != 0:
             ticker_df = ticker_df[(len(ticker_df) % self.lag):]
+            ticker_df.reset_index(drop=True, inplace=True)
         
         print(f"Length of data after applying features: {len(ticker_df) - self.lead}")
-    
 
         # Separate the date column from the rest of the dataframe
-        date_df = ticker_df[['date']].copy().astype(int)
-        date_df = date_df['date'].tolist()
+        date_df = ticker_df['date'].values.copy()
         ticker_df.drop(columns=['date'], inplace=True)
 
         # Separate the 'close' column for later profit calculation
-        close_df = ticker_df[['close']].copy()
-        close_df = close_df['close'].tolist()
+        close_df = ticker_df['close'].values.copy()
 
         # Identify categorical columns for lead time
         categorical_cols = [col for col in ticker_df.columns if col.startswith('cat_')]
@@ -141,7 +154,6 @@ class DataProcessor:
         X, Y = [], []  # Sequence and label arrays
         scaler = StandardScaler()
         window_to_avg = (self.lag + self.lead) * self.window_size # Ensure window_to_avg is a multiple of the sequence length
-        print(f"Window to average: {window_to_avg}")
 
         # Convert pandas to numpy, keep track of column locations
         feature_cols = [col for col in ticker_df.columns if col not in categorical_cols and col != self.col_to_predict]
@@ -150,38 +162,67 @@ class DataProcessor:
         target_loc = ticker_df.columns.get_loc(self.col_to_predict)
 
         zero_padded_array = np.zeros((self.lead, len(ticker_df.columns)), dtype=np.float64)
-        ticker_df = ticker_df.values    
+        ticker_df = ticker_df.values
 
-        # Step through the dataframe to create sequences, using a sliding window approach for normalization
-        for j in tqdm(range(self.lag + window_to_avg, len(ticker_df) - self.lead + 1), desc=f"Processing sequences for {ticker_index}"):
-            # Create zero-padded lead array
-            zero_padded_lead = zero_padded_array.copy()
-            # Fill in the lead time with the appropriate values
-            zero_padded_lead[:, categorical_locs] = ticker_df[j:j + self.lead, categorical_locs]  
-            # NumPy-based approach
-            lagged_sequences_array = ticker_df[j - self.lag:j].copy()
-            windowed_array = ticker_df[j - self.lag - window_to_avg:j]
+
+        if self.unknown_y:
+            lead_array = ticker_df[-self.lead:]
+            history_length = len(ticker_df) - self.lead
+            if window_to_avg > history_length:
+                window_to_avg = history_length
+
+            windowed_array = ticker_df[:window_to_avg]
+            lagged_sequences_array = windowed_array[-self.lag:].copy()
             scaler.fit(windowed_array[:, feature_locs])
 
             lagged_sequences_array[:, feature_locs] = scaler.transform(lagged_sequences_array[:, feature_locs])
             # Standardize the target column
             mean, std = np.mean(windowed_array[:, target_loc]), np.std(windowed_array[:, target_loc], ddof=1) # Match the behavior of pandas
             lagged_sequences_array[:, target_loc] = (lagged_sequences_array[:, target_loc] - mean) / std
-            # Apply the same transformation to the target value
-            y = (ticker_df[j + self.lead - 1, target_loc] - mean) / std
 
             # Create the sequence
             X.append(np.concatenate([
                         lagged_sequences_array,
-                        zero_padded_lead
+                        lead_array
                         ]).flatten())
 
-            # Create the label
-            Y.append((y, date_df[j], close_df[j + self.lead - 1], mean, std, ticker_index))
-        
+            # Create the label (with unknowns)
+            Y.append((None, date_df[-1], None, mean, std, ticker_index))
+            
+
+        else:
+            # Step through the dataframe to create sequences, using a sliding window approach for normalization
+            i = 0
+            for j in tqdm(range(self.lag + window_to_avg, len(ticker_df) - self.lead + 1), desc=f"Processing sequences for {ticker_index}"):
+                # Create zero-padded lead array
+                zero_padded_lead = zero_padded_array.copy()
+                # Fill in the lead time with the appropriate values
+                zero_padded_lead[:, categorical_locs] = ticker_df[j:j + self.lead, categorical_locs]  
+                # NumPy-based approach
+                lagged_sequences_array = ticker_df[j - self.lag:j].copy()
+                windowed_array = ticker_df[i:j]
+                i += 1
+                scaler.fit(windowed_array[:, feature_locs])
+
+                lagged_sequences_array[:, feature_locs] = scaler.transform(lagged_sequences_array[:, feature_locs])
+                # Standardize the target column
+                mean, std = np.mean(windowed_array[:, target_loc]), np.std(windowed_array[:, target_loc], ddof=1) # Match the behavior of pandas
+                lagged_sequences_array[:, target_loc] = (lagged_sequences_array[:, target_loc] - mean) / std
+                # Apply the same transformation to the target value
+                y = (ticker_df[j + self.lead - 1, target_loc] - mean) / std
+
+                # Create the sequence
+                X.append(np.concatenate([
+                            lagged_sequences_array,
+                            zero_padded_lead
+                            ]).flatten())
+
+                # Create the label
+                Y.append((y, date_df[j], close_df[j + self.lead - 1], mean, std, ticker_index))
+            
         # Convert to NumPy arrays
-        X = np.array(X, dtype=np.float32)
-        Y = np.array(Y, dtype=np.float32)
+        X = np.asarray(X, dtype=np.float32)
+        Y = np.asarray(Y, dtype=np.float32)
         print(f"X shape: {X.shape}, Y shape: {Y.shape}")
 
         return X, Y
@@ -192,7 +233,11 @@ class DataProcessor:
         features.apply_features(ticker_df)
         # Clean the data
         ticker_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        ticker_df.dropna(inplace=True)        
+        ticker_df.dropna(inplace=True)    
+
+    def create_categoricals(self, ticker_df):
+        """Apply categorical features to the dataframe"""
+        features.apply_categorical_features(ticker_df)
 
     def create_data_splits(self, X, y):
         """Split and scale the data"""
